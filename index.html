@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#ff6b00" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>BENZ ประดับยนต์ - Stock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
+    input, select, button, textarea { font-family: 'Sarabun', sans-serif; }
+    ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: #111; } ::-webkit-scrollbar-thumb { background: #ff6b00; border-radius: 2px; }
+
+    @media print {
+      html, body { background: #fff !important; color: #000 !important; }
+      #app-root { display: none !important; }
+      #receipt-zone { display: block !important; }
+    }
+    @media screen {
+      #receipt-zone { display: none; }
+    }
+
+    #receipt-zone {
+      width: 80mm;
+      font-family: 'Sarabun', sans-serif;
+      font-size: 11pt;
+      color: #000;
+      padding: 5mm;
+      background: #fff;
+    }
+    .rcpt-center { text-align: center; }
+    .rcpt-hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
+    .rcpt-row { display: flex; justify-content: space-between; font-size: 10pt; }
+    .rcpt-total { display: flex; justify-content: space-between; font-size: 13pt; font-weight: 800; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div id="app-root"></div>
+  <div id="receipt-zone"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    /* ─── DEFAULTS ─── */
+    const DEF_PRODUCTS = [
+      { id:1, code:"BZ001", name:"ฟิล์มกรองแสง 3M ดำ",    category:"ฟิล์ม",  stock:12, price:3500, unit:"ม้วน",   minStock:5 },
+      { id:2, code:"BZ002", name:"ฟิล์มกรองแสง Llumar",    category:"ฟิล์ม",  stock:3,  price:4200, unit:"ม้วน",   minStock:5 },
+      { id:3, code:"BZ003", name:"กล้องติดรถ Viofo A129",  category:"กล้อง",  stock:8,  price:2900, unit:"เครื่อง",minStock:5 },
+      { id:4, code:"BZ004", name:"พรมปูพื้น 5D Full Set",  category:"พรม",    stock:4,  price:1800, unit:"ชุด",    minStock:5 },
+      { id:5, code:"BZ005", name:"ชุดไฟ LED ภายใน",        category:"ไฟ",     stock:15, price:890,  unit:"ชุด",    minStock:5 },
+      { id:6, code:"BZ006", name:"ยางขอบประตู Universal",  category:"ยาง",    stock:2,  price:450,  unit:"เมตร",   minStock:5 },
+      { id:7, code:"BZ007", name:"น้ำยาเคลือบแก้ว Ceramic",category:"เคมี",   stock:6,  price:1200, unit:"ขวด",    minStock:5 },
+      { id:8, code:"BZ008", name:"กล้อง 360 Samsung",      category:"กล้อง",  stock:2,  price:5500, unit:"เครื่อง",minStock:5 },
+    ];
+    const DEF_TX = [
+      { id:1, date:"2025-03-10", type:"out", productId:1, productName:"ฟิล์มกรองแสง 3M ดำ",   qty:2, price:3500, note:"ขายลูกค้า",           total:7000 },
+      { id:2, date:"2025-03-10", type:"out", productId:3, productName:"กล้องติดรถ Viofo A129", qty:1, price:2900, note:"ขายลูกค้า",           total:2900 },
+      { id:3, date:"2025-03-10", type:"in",  productId:4, productName:"พรมปูพื้น 5D Full Set", qty:5, price:1800, note:"รับของจากซัพพลายเออร์",total:9000 },
+      { id:4, date:"2025-03-11", type:"out", productId:5, productName:"ชุดไฟ LED ภายใน",       qty:3, price:890,  note:"ขายลูกค้า",           total:2670 },
+      { id:5, date:"2025-03-11", type:"out", productId:7, productName:"น้ำยาเคลือบแก้ว Ceramic",qty:1,price:1200, note:"ขายลูกค้า",           total:1200 },
+    ];
+
+    /* ─── UTILS ─── */
+    const fmt   = n => (n||0).toLocaleString("th-TH");
+    const today = () => new Date().toISOString().slice(0,10);
+    const thDate= d => new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
+    const nowTs = () => new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+
+    /* ─── LOCAL STORAGE HOOK ─── */
+    function usePersist(key, def) {
+      const [val, setVal] = useState(() => {
+        try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; }
+        catch { return def; }
+      });
+      useEffect(() => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }, [key, val]);
+      return [val, setVal];
+    }
+
+    /* ─── EXCEL EXPORT ─── */
+    function exportExcel(products, transactions) {
+      const wb = XLSX.utils.book_new();
+      const stock = products.map(p => ({
+        "รหัสสินค้า": p.code, "ชื่อสินค้า": p.name, "หมวดหมู่": p.category,
+        "สต๊อก": p.stock, "ราคา/หน่วย": p.price, "หน่วย": p.unit,
+        "มูลค่ารวม": p.stock * p.price, "แจ้งเตือนต่ำกว่า": p.minStock,
+      }));
+      const ws1 = XLSX.utils.json_to_sheet(stock);
+      ws1["!cols"] = [8,30,12,8,12,8,14,14].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb, ws1, "สต๊อกสินค้า");
+
+      const txSheet = transactions.map(t => ({
+        "วันที่": t.date, "ประเภท": t.type==="out"?"ขายออก":"รับเข้า",
+        "ชื่อสินค้า": t.productName, "จำนวน": t.qty,
+        "ราคา/หน่วย": t.price, "มูลค่ารวม": t.total, "หมายเหตุ": t.note,
+      }));
+      const ws2 = XLSX.utils.json_to_sheet(txSheet);
+      ws2["!cols"] = [12,10,30,8,12,12,20].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb, ws2, "ประวัติการเคลื่อนไหว");
+
+      const dateStr = today();
+      XLSX.writeFile(wb, `BENZ_Stock_${dateStr}.xlsx`);
+    }
+
+    /* ─── RECEIPT PRINT ─── */
+    function printReceipt(tx, shopName="BENZ ประดับยนต์") {
+      const zone = document.getElementById("receipt-zone");
+      const receiptNo = `RCP-${Date.now().toString().slice(-6)}`;
+      zone.innerHTML = `
+        <div class="rcpt-center" style="font-size:16pt;font-weight:800;">${shopName}</div>
+        <div class="rcpt-center" style="font-size:9pt;color:#555;">ใบเสร็จรับเงิน</div>
+        <hr class="rcpt-hr"/>
+        <div class="rcpt-row"><span>เลขที่:</span><span>${receiptNo}</span></div>
+        <div class="rcpt-row"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div>
+        <hr class="rcpt-hr"/>
+        <div style="font-size:10pt;margin:4px 0;">
+          ${tx.items ? tx.items.map(i=>`
+            <div class="rcpt-row"><span>${i.name}</span></div>
+            <div class="rcpt-row" style="color:#555;"><span>${i.qty} x ฿${fmt(i.price)}</span><span>฿${fmt(i.qty*i.price)}</span></div>
+          `).join("") : `
+            <div class="rcpt-row"><span>${tx.productName}</span></div>
+            <div class="rcpt-row" style="color:#555;"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div>
+          `}
+        </div>
+        <hr class="rcpt-hr"/>
+        <div class="rcpt-total"><span>รวมทั้งหมด</span><span>฿${fmt(tx.total)}</span></div>
+        <hr class="rcpt-hr"/>
+        <div class="rcpt-center" style="margin-top:6px;font-size:9pt;color:#555;">ขอบคุณที่ใช้บริการ 🙏</div>
+        <div class="rcpt-center" style="font-size:9pt;color:#555;">${shopName}</div>
+      `;
+      setTimeout(() => { window.print(); }, 200);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       MAIN APP
+    ═══════════════════════════════════════════════════════════════ */
+    const TABS = ["หน้าหลัก","สต๊อก","นำเข้า/ออก","รายงาน","ตั้งค่า"];
+    const ICONS = { "หน้าหลัก":"🏠","สต๊อก":"📦","นำเข้า/ออก":"🔄","รายงาน":"📊","ตั้งค่า":"⚙️" };
+
+    function App() {
+      const [tab,setTab] = useState("หน้าหลัก");
+      const [products, setProducts]     = usePersist("benz_products", DEF_PRODUCTS);
+      const [transactions, setTxs]      = usePersist("benz_transactions", DEF_TX);
+      const [shopName]                   = usePersist("benz_shopname", "BENZ ประดับยนต์");
+      const [modal, setModal]           = useState(null);
+      const [form, setForm]             = useState({});
+      const [editProduct, setEditProduct] = useState(null);
+      const [searchQ, setSearchQ]       = useState("");
+      const [reportDate, setReportDate] = useState(today());
+      const [toast, setToast]           = useState(null);
+      const [lastReceipt, setLastReceipt] = useState(null);
+
+      const showToast = useCallback((msg, type="ok") => {
+        setToast({msg,type}); setTimeout(()=>setToast(null), 2800);
+      }, []);
+
+      const closeModal = () => { setModal(null); setForm({}); };
+
+      /* ── TRANSACTION SUBMIT ── */
+      const submitTx = (type) => {
+        const product = products.find(p=>p.id===parseInt(form.productId));
+        if (!product) return showToast("กรุณาเลือกสินค้า","err");
+        const qty = parseInt(form.qty);
+        if (!qty||qty<=0) return showToast("กรุณากรอกจำนวนที่ถูกต้อง","err");
+        if (type==="out"&&product.stock<qty) return showToast("⚠️ สต๊อกไม่เพียงพอ!","err");
+        const tx = {
+          id: Date.now(), date: form.date||today(), time: nowTs(),
+          type, productId: product.id, productName: product.name,
+          qty, price: product.price, note: form.note||(type==="out"?"ขายลูกค้า":"รับสินค้า"),
+          total: product.price * qty,
+        };
+        setTxs(prev=>[tx,...prev]);
+        setProducts(prev=>prev.map(p=>p.id===product.id
+          ? {...p, stock: type==="in" ? p.stock+qty : p.stock-qty} : p));
+        if (type==="out") setLastReceipt(tx);
+        closeModal();
+        showToast(type==="in" ? `✅ รับสินค้าเข้า +${qty}` : `✅ บันทึกการขาย -${qty}`);
+      };
+
+      /* ── ADD PRODUCT ── */
+      const submitNewProduct = () => {
+        if (!form.name||!form.code||!form.price) return showToast("กรอกข้อมูลให้ครบก่อนนะครับ","err");
+        if (products.find(p=>p.code===form.code)) return showToast("รหัสสินค้านี้มีอยู่แล้ว","err");
+        setProducts(prev=>[...prev,{
+          id: Date.now(), code: form.code, name: form.name,
+          category: form.category||"ทั่วไป", stock: parseInt(form.stock)||0,
+          price: parseFloat(form.price)||0, unit: form.unit||"ชิ้น", minStock: 5,
+        }]);
+        closeModal(); showToast("✅ เพิ่มสินค้าใหม่สำเร็จ");
+      };
+
+      /* ── EDIT PRODUCT ── */
+      const submitEdit = () => {
+        setProducts(prev=>prev.map(p=>p.id===editProduct.id?{...editProduct}:p));
+        setEditProduct(null); showToast("✅ แก้ไขสินค้าสำเร็จ");
+      };
+
+      const delProduct = (id) => {
+        if (!window.confirm("ลบสินค้านี้?")) return;
+        setProducts(prev=>prev.filter(p=>p.id!==id));
+        setEditProduct(null); showToast("🗑️ ลบสินค้าแล้ว");
+      };
+
+      const lowStock = products.filter(p=>p.stock<p.minStock);
+      const todayTx  = transactions.filter(t=>t.date===reportDate);
+      const todaySales = todayTx.filter(t=>t.type==="out");
+      const todayIn    = todayTx.filter(t=>t.type==="in");
+      const todayRev   = todaySales.reduce((s,t)=>s+t.total,0);
+
+      const filtered = products.filter(p=>
+        p.name.toLowerCase().includes(searchQ.toLowerCase())||
+        p.code.toLowerCase().includes(searchQ.toLowerCase())||
+        p.category.toLowerCase().includes(searchQ.toLowerCase())
+      );
+
+      return (
+        <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",maxWidth:440,margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0"}}>
+
+          {/* HEADER */}
+          <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการสต๊อก</div>
+                <div style={{fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.2}}>{shopName}</div>
+              </div>
+              <div style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#ff6b00,#ff9500)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:"0 0 18px rgba(255,107,0,.5)"}}>🚗</div>
+            </div>
+            {lowStock.length>0&&(
+              <div style={{marginTop:8,background:"rgba(255,50,50,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"5px 10px",fontSize:11,color:"#ff6666",display:"flex",alignItems:"center",gap:5}}>
+                <span>⚠️</span><span>สินค้าใกล้หมด <strong>{lowStock.length} รายการ</strong> — {lowStock.map(p=>p.name.split(" ")[0]).join(", ")}</span>
+              </div>
+            )}
+          </div>
+
+          {/* TOAST */}
+          {toast&&<div style={{position:"fixed",top:108,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?"#cc2222":"#1a7a40",color:"#fff",padding:"9px 18px",borderRadius:10,zIndex:999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.5)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
+
+          {/* LAST RECEIPT BANNER */}
+          {lastReceipt&&(
+            <div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:12,color:"#aaa"}}>🧾 บันทึกล่าสุด: <strong style={{color:"#fff"}}>{lastReceipt.productName}</strong></div>
+              <button onClick={()=>printReceipt(lastReceipt,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ พิมพ์ใบเสร็จ</button>
+            </div>
+          )}
+
+          {/* CONTENT */}
+          <div style={{padding:"0 16px"}}>
+            {tab==="หน้าหลัก"&&<HomeTab products={products} todayRev={todayRev} todaySales={todaySales} lowStock={lowStock} setTab={setTab} setModal={setModal} transactions={transactions} />}
+            {tab==="สต๊อก"&&<StockTab products={filtered} searchQ={searchQ} setSearchQ={setSearchQ} setEditProduct={setEditProduct} lowStock={lowStock} setModal={setModal} />}
+            {tab==="นำเข้า/ออก"&&<TxTab transactions={transactions} setModal={setModal} printReceipt={(tx)=>printReceipt(tx,shopName)} />}
+            {tab==="รายงาน"&&<ReportTab reportDate={reportDate} setReportDate={setReportDate} todaySales={todaySales} todayIn={todayIn} todayRev={todayRev} transactions={transactions} products={products} exportExcel={()=>exportExcel(products,transactions)} />}
+            {tab==="ตั้งค่า"&&<SettingsTab products={products} setModal={setModal} exportExcel={()=>exportExcel(products,transactions)} transactions={transactions} shopName={shopName} />}
+          </div>
+
+          {/* BOTTOM NAV */}
+          <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
+            {TABS.map(t=>(
+              <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0"}}>
+                <span style={{fontSize:19}}>{ICONS[t]}</span>
+                <span style={{fontSize:9,fontWeight:600,color:tab===t?"#ff6b00":"#555"}}>{t}</span>
+                {tab===t&&<div style={{width:4,height:4,borderRadius:"50%",background:"#ff6b00",marginTop:1}}/>}
+              </button>
+            ))}
+          </div>
+
+          {/* ─── MODALS ─── */}
+          {(modal==="in"||modal==="out")&&(
+            <Modal title={modal==="in"?"📥 รับสินค้าเข้า":"📤 บันทึกการขาย"} onClose={closeModal}>
+              <Sel label="สินค้า" value={form.productId||""} onChange={v=>setForm(f=>({...f,productId:v}))}>
+                <option value="">-- เลือกสินค้า --</option>
+                {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
+              </Sel>
+              <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0" />
+              <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))} />
+              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder={modal==="in"?"รับจากซัพพลายเออร์":"ขายลูกค้า"} />
+              {form.productId&&form.qty&&(
+                <div style={{background:"#1a1a1a",borderRadius:8,padding:10,fontSize:13,color:"#aaa"}}>
+                  💰 มูลค่า: <strong style={{color:"#ff9500"}}>฿{fmt((products.find(p=>p.id===parseInt(form.productId))?.price||0)*parseInt(form.qty||0))} บาท</strong>
+                </div>
+              )}
+              <OBtn onClick={()=>submitTx(modal)}>{modal==="in"?"✅ บันทึกรับสินค้า":"✅ บันทึกการขาย"}</OBtn>
+            </Modal>
+          )}
+
+          {modal==="addProduct"&&(
+            <Modal title="➕ เพิ่มสินค้าใหม่" onClose={closeModal}>
+              <Inp label="รหัสสินค้า *" value={form.code||""} onChange={v=>setForm(f=>({...f,code:v}))} placeholder="BZ009" />
+              <Inp label="ชื่อสินค้า *" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="ชื่อสินค้า" />
+              <Inp label="หมวดหมู่" value={form.category||""} onChange={v=>setForm(f=>({...f,category:v}))} placeholder="ฟิล์ม / กล้อง / พรม..." />
+              <Inp label="ราคา (บาท) *" type="number" value={form.price||""} onChange={v=>setForm(f=>({...f,price:v}))} placeholder="0" />
+              <Inp label="สต๊อกเริ่มต้น" type="number" value={form.stock||""} onChange={v=>setForm(f=>({...f,stock:v}))} placeholder="0" />
+              <Inp label="หน่วย" value={form.unit||""} onChange={v=>setForm(f=>({...f,unit:v}))} placeholder="ชิ้น / ม้วน / ชุด" />
+              <OBtn onClick={submitNewProduct}>✅ เพิ่มสินค้า</OBtn>
+            </Modal>
+          )}
+
+          {editProduct&&(
+            <Modal title="✏️ แก้ไขสินค้า" onClose={()=>setEditProduct(null)}>
+              <div style={{fontSize:11,color:"#555",marginBottom:-4}}>รหัส: {editProduct.code}</div>
+              <Inp label="ชื่อสินค้า" value={editProduct.name} onChange={v=>setEditProduct(p=>({...p,name:v}))} />
+              <Inp label="หมวดหมู่" value={editProduct.category} onChange={v=>setEditProduct(p=>({...p,category:v}))} />
+              <Inp label="ราคา (บาท)" type="number" value={editProduct.price} onChange={v=>setEditProduct(p=>({...p,price:parseFloat(v)}))} />
+              <Inp label="สต๊อกปัจจุบัน" type="number" value={editProduct.stock} onChange={v=>setEditProduct(p=>({...p,stock:parseInt(v)}))} />
+              <Inp label="เกณฑ์แจ้งเตือน (ชิ้น)" type="number" value={editProduct.minStock} onChange={v=>setEditProduct(p=>({...p,minStock:parseInt(v)}))} />
+              <Inp label="หน่วย" value={editProduct.unit} onChange={v=>setEditProduct(p=>({...p,unit:v}))} />
+              <OBtn onClick={submitEdit}>✅ บันทึกการแก้ไข</OBtn>
+              <button onClick={()=>delProduct(editProduct.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer",marginTop:4}}>🗑️ ลบสินค้านี้</button>
+            </Modal>
+          )}
+        </div>
+      );
+    }
+
+    /* ═══ TABS ═══════════════════════════════════════════════════ */
+
+    function HomeTab({products,todayRev,todaySales,lowStock,setTab,setModal,transactions}) {
+      const totalStock = products.reduce((s,p)=>s+p.stock,0);
+      const totalVal   = products.reduce((s,p)=>s+p.stock*p.price,0);
+      return (
+        <div style={{paddingTop:14}}>
+          <div style={{fontSize:11,color:"#555",marginBottom:6}}>📅 วันนี้ {thDate(today())}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <Stat icon="💰" label="ยอดขายวันนี้"    val={`฿${fmt(todayRev)}`}    color="#ff6b00"/>
+            <Stat icon="🛒" label="รายการขายวันนี้" val={`${todaySales.length} รายการ`} color="#00aaff"/>
+            <Stat icon="📦" label="สต๊อกรวม"        val={`${fmt(totalStock)} ชิ้น`}   color="#00cc66"/>
+            <Stat icon="💎" label="มูลค่าสต๊อก"     val={`฿${fmt(totalVal)}`}    color="#aa66ff"/>
+          </div>
+
+          {lowStock.length>0&&(
+            <div style={{marginBottom:14}}>
+              <SecTitle>⚠️ สินค้าใกล้หมด</SecTitle>
+              {lowStock.map(p=>(
+                <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff3333",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
+                    <div style={{fontSize:11,color:"#666"}}>{p.code} · เกณฑ์แจ้งเตือน {p.minStock} ชิ้น</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:22,fontWeight:800,color:"#ff3333"}}>{p.stock}</div>
+                    <div style={{fontSize:10,color:"#ff6666"}}>{p.unit}เหลือ</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <SecTitle>การดำเนินการด่วน</SecTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <ABtn icon="📥" label="รับสินค้าเข้า"  color="#00cc66" onClick={()=>setModal("in")}/>
+            <ABtn icon="📤" label="บันทึกการขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
+            <ABtn icon="➕" label="เพิ่มสินค้าใหม่" color="#00aaff" onClick={()=>setModal("addProduct")}/>
+            <ABtn icon="📊" label="ดูรายงาน"       color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
+          </div>
+
+          <SecTitle>รายการล่าสุดวันนี้</SecTitle>
+          {transactions.filter(t=>t.date===today()).slice(0,5).map(t=><TxRow key={t.id} tx={t}/>)}
+          {transactions.filter(t=>t.date===today()).length===0&&<Empty msg="ยังไม่มีรายการวันนี้"/>}
+        </div>
+      );
+    }
+
+    function StockTab({products,searchQ,setSearchQ,setEditProduct,lowStock,setModal}) {
+      return (
+        <div style={{paddingTop:14}}>
+          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="🔍 ค้นหาสินค้า รหัส หมวดหมู่..."
+            style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:10}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:11,color:"#555"}}>ทั้งหมด {products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length} รายการ</span>}</div>
+            <button onClick={()=>setModal("addProduct")} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
+          </div>
+          {products.map(p=>{
+            const isLow = p.stock<p.minStock;
+            return (
+              <div key={p.id} onClick={()=>setEditProduct({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
+                    <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
+                    <span style={{fontSize:10,color:"#555",background:"#222",padding:"1px 6px",borderRadius:4}}>{p.category}</span>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
+                  <div style={{fontSize:11,color:"#666"}}>฿{fmt(p.price)} / {p.unit}</div>
+                </div>
+                <div style={{textAlign:"right",minWidth:54}}>
+                  <div style={{fontSize:22,fontWeight:800,color:isLow?"#ff3333":"#00cc66"}}>{p.stock}</div>
+                  <div style={{fontSize:10,color:"#555"}}>{p.unit}</div>
+                  {isLow&&<div style={{fontSize:9,color:"#ff6666"}}>⚠️ ต่ำกว่าเกณฑ์</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function TxTab({transactions,setModal,printReceipt}) {
+      const [filter,setFilter] = useState("all");
+      const filtered = filter==="all" ? transactions : transactions.filter(t=>t.type===filter);
+      return (
+        <div style={{paddingTop:14}}>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            {[["all","ทั้งหมด"],["out","การขาย"],["in","รับเข้า"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setFilter(v)} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",background:filter===v?"#ff6b00":"#1a1a1a",color:filter===v?"#fff":"#666",fontSize:12,fontWeight:600}}>{l}</button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            <ABtn icon="📥" label="รับสินค้า"   color="#00cc66" onClick={()=>setModal("in")}/>
+            <ABtn icon="📤" label="บันทึกขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
+          </div>
+          {filtered.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printReceipt(t):null}/>)}
+          {filtered.length===0&&<Empty msg="ไม่มีรายการ"/>}
+        </div>
+      );
+    }
+
+    function ReportTab({reportDate,setReportDate,todaySales,todayIn,todayRev,transactions,products,exportExcel}) {
+      const last7 = Array.from({length:7},(_,i)=>{
+        const d = new Date(); d.setDate(d.getDate()-(6-i));
+        const ds = d.toISOString().slice(0,10);
+        const rev = transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0);
+        return {ds, rev, label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})};
+      });
+      const maxRev = Math.max(...last7.map(d=>d.rev),1);
+
+      const topSell = {};
+      transactions.filter(t=>t.type==="out").forEach(t=>{ topSell[t.productName]=(topSell[t.productName]||0)+t.qty; });
+      const topList = Object.entries(topSell).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+      return (
+        <div style={{paddingTop:14}}>
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>📅 เลือกวันที่</label>
+            <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)}
+              style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+            <Stat icon="💰" label="รายได้"      val={`฿${fmt(todayRev)}`}        color="#ff6b00" sm/>
+            <Stat icon="🛒" label="รายการขาย"  val={`${todaySales.length}`}       color="#00aaff" sm/>
+            <Stat icon="📥" label="รับสินค้า"  val={`${todayIn.length}`}          color="#00cc66" sm/>
+          </div>
+
+          <SecTitle>ยอดขาย 7 วันย้อนหลัง</SecTitle>
+          <div style={{background:"#111",borderRadius:12,padding:14,marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:5,height:70}}>
+              {last7.map(d=>(
+                <div key={d.ds} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                  <div style={{width:"100%",borderRadius:"4px 4px 0 0",background:d.ds===reportDate?"#ff6b00":"#2a2a2a",height:`${d.rev>0?Math.max((d.rev/maxRev)*55,4):3}px`,transition:"height .3s"}}/>
+                  <div style={{fontSize:8,color:"#555",textAlign:"center",lineHeight:1.2}}>{d.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <SecTitle>สินค้าขายดี (รวมทุกวัน)</SecTitle>
+          {topList.map(([name,qty],i)=>(
+            <div key={name} style={{background:"#161616",border:"1px solid #2a2a2a",borderRadius:10,padding:"9px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:16,fontWeight:800,color:"#ff6b00",minWidth:20}}>#{i+1}</span>
+                <span style={{fontSize:13}}>{name}</span>
+              </div>
+              <span style={{fontSize:13,fontWeight:700,color:"#00cc66"}}>{qty} ชิ้น</span>
+            </div>
+          ))}
+
+          <SecTitle>รายการขาย — {thDate(reportDate)}</SecTitle>
+          {todaySales.map(t=><TxRow key={t.id} tx={t}/>)}
+          {todaySales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
+
+          <div style={{marginTop:16}}>
+            <button onClick={exportExcel} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc66",background:"#001a0a",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📊 Export Excel ทั้งหมด (.xlsx)
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function SettingsTab({products,setModal,exportExcel,transactions,shopName}) {
+      const totalVal = products.reduce((s,p)=>s+p.stock*p.price,0);
+      const cats = [...new Set(products.map(p=>p.category))];
+      const handleReset = () => {
+        if (!window.confirm("⚠️ ล้างข้อมูลทั้งหมดและเริ่มใหม่?\n(ไม่สามารถกู้คืนได้)")) return;
+        localStorage.removeItem("benz_products");
+        localStorage.removeItem("benz_transactions");
+        window.location.reload();
+      };
+      return (
+        <div style={{paddingTop:14}}>
+          <SecTitle>ข้อมูลร้าน</SecTitle>
+          <div style={{background:"linear-gradient(135deg,#1a0800,#2a1000)",border:"1px solid #ff6b0033",borderRadius:12,padding:16,marginBottom:14}}>
+            <div style={{fontSize:18,fontWeight:800,color:"#ff6b00"}}>{shopName}</div>
+            <div style={{fontSize:11,color:"#555",marginBottom:10}}>ระบบจัดการสต๊อกสินค้า v2.0</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
+              <div style={{color:"#888"}}>สินค้า: <strong style={{color:"#fff"}}>{products.length} รายการ</strong></div>
+              <div style={{color:"#888"}}>หมวดหมู่: <strong style={{color:"#fff"}}>{cats.length} หมวด</strong></div>
+              <div style={{color:"#888"}}>รายการ Tx: <strong style={{color:"#fff"}}>{transactions.length} รายการ</strong></div>
+              <div style={{color:"#888"}}>มูลค่าสต๊อก: <strong style={{color:"#ff9500"}}>฿{fmt(totalVal)}</strong></div>
+            </div>
+          </div>
+
+          <SecTitle>จัดการสินค้า</SecTitle>
+          <OBtn onClick={()=>setModal("addProduct")}>➕ เพิ่มสินค้าใหม่</OBtn>
+
+          <div style={{marginTop:12}}>
+            <button onClick={exportExcel} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc66",background:"#001a0a",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:8}}>
+              📊 Export Excel (.xlsx)
+            </button>
+          </div>
+
+          <SecTitle style={{marginTop:16}}>หมวดหมู่สินค้า</SecTitle>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
+            {cats.map(c=>(
+              <div key={c} style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:8,padding:"5px 10px",fontSize:12,color:"#aaa"}}>{c} ({products.filter(p=>p.category===c).length})</div>
+            ))}
+          </div>
+
+          <SecTitle>ข้อมูลอยู่ในเครื่อง</SecTitle>
+          <div style={{background:"#111",border:"1px solid #1a3a1a",borderRadius:10,padding:12,fontSize:12,color:"#666",marginBottom:12}}>
+            ✅ ข้อมูลถูกบันทึกอัตโนมัติในเบราว์เซอร์นี้ — ไม่หายเมื่อปิดแท็บ
+          </div>
+
+          <button onClick={handleReset} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            ⚠️ รีเซ็ตข้อมูลทั้งหมด
+          </button>
+        </div>
+      );
+    }
+
+    /* ═══ SHARED UI ══════════════════════════════════════════════ */
+    function Modal({title,children,onClose}) {
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+          <div style={{background:"#111",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"85vh",overflowY:"auto",border:"1px solid #2a2a2a"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:700}}>{title}</div>
+              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>{children}</div>
+          </div>
+        </div>
+      );
+    }
+    function Inp({label,value,onChange,type="text",placeholder=""}) {
+      return (<div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/></div>);
+    }
+    function Sel({label,value,onChange,children}) {
+      return (<div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}>{children}</select></div>);
+    }
+    function OBtn({onClick,children}) {
+      return (<button onClick={onClick} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700,boxShadow:"0 4px 15px rgba(255,107,0,.35)"}}>{children}</button>);
+    }
+    function Stat({icon,label,val,color,sm}) {
+      return (
+        <div style={{background:"#161616",border:`1px solid ${color}33`,borderRadius:12,padding:sm?"10px":"13px",borderLeft:`3px solid ${color}`}}>
+          <div style={{fontSize:sm?15:20,marginBottom:3}}>{icon}</div>
+          <div style={{fontSize:sm?13:17,fontWeight:800,color}}>{val}</div>
+          <div style={{fontSize:sm?9:10,color:"#555"}}>{label}</div>
+        </div>
+      );
+    }
+    function ABtn({icon,label,color,onClick}) {
+      return (<button onClick={onClick} style={{flex:1,padding:"13px 8px",borderRadius:12,border:`1px solid ${color}33`,background:`${color}11`,color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span></button>);
+    }
+    function TxRow({tx,onPrint}) {
+      const isOut = tx.type==="out";
+      return (
+        <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
+          <div style={{display:"flex",gap:9,alignItems:"center",flex:1}}>
+            <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</div>
+              <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
+              <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
+            </div>
+            {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
+          </div>
+        </div>
+      );
+    }
+    function SecTitle({children}) {
+      return <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",marginBottom:8,marginTop:4,letterSpacing:1,textTransform:"uppercase"}}>{children}</div>;
+    }
+    function Empty({msg}) {
+      return <div style={{color:"#333",fontSize:13,textAlign:"center",padding:"24px 0"}}>{msg}</div>;
+    }
+
+    /* RENDER */
+    ReactDOM.createRoot(document.getElementById("app-root")).render(<App/>);
+  </script>
+</body>
+</html>
