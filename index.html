@@ -6,193 +6,211 @@
   <meta name="theme-color" content="#ff6b00" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>BENZ ประดับยนต์ - Stock</title>
+  <title>BENZ ประดับยนต์</title>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
     input, select, button, textarea { font-family: 'Sarabun', sans-serif; }
     ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: #111; } ::-webkit-scrollbar-thumb { background: #ff6b00; border-radius: 2px; }
-
     @media print {
       html, body { background: #fff !important; color: #000 !important; }
       #app-root { display: none !important; }
-      #receipt-zone { display: block !important; }
+      #print-zone { display: block !important; }
     }
-    @media screen {
-      #receipt-zone { display: none; }
-    }
+    @media screen { #print-zone { display: none; } }
+    #print-zone { width: 80mm; font-family: 'Sarabun', sans-serif; font-size: 11pt; color: #000; padding: 5mm; background: #fff; }
+    .pr { display: flex; justify-content: space-between; font-size: 10pt; margin: 2px 0; }
+    .pr-hr { border: none; border-top: 1px dashed #000; margin: 5px 0; }
 
-    #receipt-zone {
-      width: 80mm;
-      font-family: 'Sarabun', sans-serif;
-      font-size: 11pt;
-      color: #000;
-      padding: 5mm;
-      background: #fff;
-    }
-    .rcpt-center { text-align: center; }
-    .rcpt-hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
-    .rcpt-row { display: flex; justify-content: space-between; font-size: 10pt; }
-    .rcpt-total { display: flex; justify-content: space-between; font-size: 13pt; font-weight: 800; margin-top: 4px; }
+    /* WARRANTY CARD PROGRESS */
+    .prog-bar { height: 4px; background: #222; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+    .prog-fill { height: 100%; border-radius: 4px; }
   </style>
 </head>
 <body>
   <div id="app-root"></div>
-  <div id="receipt-zone"></div>
+  <div id="print-zone"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef } = React;
+    const { useState, useEffect, useCallback } = React;
 
-    /* ─── DEFAULTS ─── */
+    /* ─── DEFAULTS ─────────────────────────────────────────────── */
     const DEF_PRODUCTS = [
-      { id:1, code:"BZ001", name:"ฟิล์มกรองแสง 3M ดำ",    category:"ฟิล์ม",  stock:12, price:3500, unit:"ม้วน",   minStock:5 },
-      { id:2, code:"BZ002", name:"ฟิล์มกรองแสง Llumar",    category:"ฟิล์ม",  stock:3,  price:4200, unit:"ม้วน",   minStock:5 },
-      { id:3, code:"BZ003", name:"กล้องติดรถ Viofo A129",  category:"กล้อง",  stock:8,  price:2900, unit:"เครื่อง",minStock:5 },
-      { id:4, code:"BZ004", name:"พรมปูพื้น 5D Full Set",  category:"พรม",    stock:4,  price:1800, unit:"ชุด",    minStock:5 },
-      { id:5, code:"BZ005", name:"ชุดไฟ LED ภายใน",        category:"ไฟ",     stock:15, price:890,  unit:"ชุด",    minStock:5 },
-      { id:6, code:"BZ006", name:"ยางขอบประตู Universal",  category:"ยาง",    stock:2,  price:450,  unit:"เมตร",   minStock:5 },
-      { id:7, code:"BZ007", name:"น้ำยาเคลือบแก้ว Ceramic",category:"เคมี",   stock:6,  price:1200, unit:"ขวด",    minStock:5 },
-      { id:8, code:"BZ008", name:"กล้อง 360 Samsung",      category:"กล้อง",  stock:2,  price:5500, unit:"เครื่อง",minStock:5 },
+      { id:1, code:"BZ001", name:"ฟิล์มกรองแสง 3M ดำ",     category:"ฟิล์ม",  stock:12, price:3500, unit:"ม้วน",    minStock:5 },
+      { id:2, code:"BZ002", name:"ฟิล์มกรองแสง Llumar",     category:"ฟิล์ม",  stock:3,  price:4200, unit:"ม้วน",    minStock:5 },
+      { id:3, code:"BZ003", name:"กล้องติดรถ Viofo A129",   category:"กล้อง",  stock:8,  price:2900, unit:"เครื่อง", minStock:5 },
+      { id:4, code:"BZ004", name:"พรมปูพื้น 5D Full Set",   category:"พรม",    stock:4,  price:1800, unit:"ชุด",     minStock:5 },
+      { id:5, code:"BZ005", name:"ชุดไฟ LED ภายใน",         category:"ไฟ",     stock:15, price:890,  unit:"ชุด",     minStock:5 },
+      { id:6, code:"BZ006", name:"ยางขอบประตู Universal",   category:"ยาง",    stock:2,  price:450,  unit:"เมตร",    minStock:5 },
+      { id:7, code:"BZ007", name:"น้ำยาเคลือบแก้ว Ceramic", category:"เคมี",   stock:6,  price:1200, unit:"ขวด",     minStock:5 },
+      { id:8, code:"BZ008", name:"กล้อง 360 Samsung",       category:"กล้อง",  stock:2,  price:5500, unit:"เครื่อง", minStock:5 },
     ];
     const DEF_TX = [
-      { id:1, date:"2025-03-10", type:"out", productId:1, productName:"ฟิล์มกรองแสง 3M ดำ",   qty:2, price:3500, note:"ขายลูกค้า",           total:7000 },
-      { id:2, date:"2025-03-10", type:"out", productId:3, productName:"กล้องติดรถ Viofo A129", qty:1, price:2900, note:"ขายลูกค้า",           total:2900 },
-      { id:3, date:"2025-03-10", type:"in",  productId:4, productName:"พรมปูพื้น 5D Full Set", qty:5, price:1800, note:"รับของจากซัพพลายเออร์",total:9000 },
-      { id:4, date:"2025-03-11", type:"out", productId:5, productName:"ชุดไฟ LED ภายใน",       qty:3, price:890,  note:"ขายลูกค้า",           total:2670 },
-      { id:5, date:"2025-03-11", type:"out", productId:7, productName:"น้ำยาเคลือบแก้ว Ceramic",qty:1,price:1200, note:"ขายลูกค้า",           total:1200 },
+      { id:1, date:"2025-03-10", type:"out", productId:1, productName:"ฟิล์มกรองแสง 3M ดำ",    qty:2, price:3500, note:"ขายลูกค้า", total:7000 },
+      { id:2, date:"2025-03-10", type:"out", productId:3, productName:"กล้องติดรถ Viofo A129",  qty:1, price:2900, note:"ขายลูกค้า", total:2900 },
+      { id:3, date:"2025-03-10", type:"in",  productId:4, productName:"พรมปูพื้น 5D Full Set",  qty:5, price:1800, note:"รับของจากซัพพลายเออร์", total:9000 },
+      { id:4, date:"2025-03-11", type:"out", productId:5, productName:"ชุดไฟ LED ภายใน",        qty:3, price:890,  note:"ขายลูกค้า", total:2670 },
+      { id:5, date:"2025-03-11", type:"out", productId:7, productName:"น้ำยาเคลือบแก้ว Ceramic",qty:1, price:1200, note:"ขายลูกค้า", total:1200 },
+    ];
+    const DEF_WARRANTIES = [
+      { id:1, customer:"สมชาย มีสุข",    phone:"081-234-5678", plate:"กข 1234 กทม", product:"ฟิล์มกรองแสง 3M ดำ",    type:"install", saleDate:"2023-03-15", months:60, note:"ติดฟิล์มรอบคัน" },
+      { id:2, customer:"วิภา สดใส",      phone:"089-876-5432", plate:"งจ 5678 นบ",  product:"กล้องติดรถ Viofo A129",  type:"install", saleDate:"2024-06-01", months:12, note:"" },
+      { id:3, customer:"นารี รักดี",     phone:"086-333-4444", plate:"ขข 4321 กทม", product:"ชุดไฟ LED ภายใน",        type:"product",  saleDate:"2025-01-20", months:12, note:"" },
+      { id:4, customer:"ทวีชัย แสนดี",   phone:"094-555-6666", plate:"พพ 7777 สก",  product:"พรมปูพื้น 5D",           type:"product",  saleDate:"2024-09-05", months:24, note:"5 ชิ้นครบชุด" },
+      { id:5, customer:"ประยุทธ์ ดีมาก", phone:"092-111-2222", plate:"ชช 9999 ชม",  product:"น้ำยาเคลือบแก้ว Ceramic",type:"product",  saleDate:"2022-11-10", months:36, note:"เคลือบทั้งคัน" },
     ];
 
-    /* ─── UTILS ─── */
-    const fmt   = n => (n||0).toLocaleString("th-TH");
-    const today = () => new Date().toISOString().slice(0,10);
-    const thDate= d => new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
-    const nowTs = () => new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+    /* ─── UTILS ─────────────────────────────────────────────────── */
+    const fmt    = n => (n||0).toLocaleString("th-TH");
+    const today  = () => new Date().toISOString().slice(0,10);
+    const thDate = d => { if(!d) return "-"; return new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"}); };
+    const nowTs  = () => new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+    const addMonths = (dateStr, months) => { const d = new Date(dateStr); d.setMonth(d.getMonth()+months); return d.toISOString().slice(0,10); };
+    const daysLeft  = endDate => { const now=new Date(); now.setHours(0,0,0,0); const end=new Date(endDate); end.setHours(0,0,0,0); return Math.ceil((end-now)/86400000); };
+    const wStatus   = w => { const dl=daysLeft(addMonths(w.saleDate,w.months)); if(dl<0) return "exp"; if(dl<=30) return "warn"; return "ok"; };
+    const wPct      = w => { const total=w.months*30; const exp=addMonths(w.saleDate,w.months); const used=total-daysLeft(exp); return Math.min(100,Math.max(0,Math.round((used/total)*100))); };
 
-    /* ─── LOCAL STORAGE HOOK ─── */
+    /* ─── PERSIST HOOK ──────────────────────────────────────────── */
     function usePersist(key, def) {
       const [val, setVal] = useState(() => {
-        try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; }
-        catch { return def; }
+        try { const s=localStorage.getItem(key); return s?JSON.parse(s):def; } catch { return def; }
       });
-      useEffect(() => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }, [key, val]);
+      useEffect(() => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} }, [key,val]);
       return [val, setVal];
     }
 
-    /* ─── EXCEL EXPORT ─── */
-    function exportExcel(products, transactions) {
-      const wb = XLSX.utils.book_new();
-      const stock = products.map(p => ({
-        "รหัสสินค้า": p.code, "ชื่อสินค้า": p.name, "หมวดหมู่": p.category,
-        "สต๊อก": p.stock, "ราคา/หน่วย": p.price, "หน่วย": p.unit,
-        "มูลค่ารวม": p.stock * p.price, "แจ้งเตือนต่ำกว่า": p.minStock,
-      }));
-      const ws1 = XLSX.utils.json_to_sheet(stock);
-      ws1["!cols"] = [8,30,12,8,12,8,14,14].map(w=>({wch:w}));
-      XLSX.utils.book_append_sheet(wb, ws1, "สต๊อกสินค้า");
-
-      const txSheet = transactions.map(t => ({
-        "วันที่": t.date, "ประเภท": t.type==="out"?"ขายออก":"รับเข้า",
-        "ชื่อสินค้า": t.productName, "จำนวน": t.qty,
-        "ราคา/หน่วย": t.price, "มูลค่ารวม": t.total, "หมายเหตุ": t.note,
-      }));
-      const ws2 = XLSX.utils.json_to_sheet(txSheet);
-      ws2["!cols"] = [12,10,30,8,12,12,20].map(w=>({wch:w}));
-      XLSX.utils.book_append_sheet(wb, ws2, "ประวัติการเคลื่อนไหว");
-
-      const dateStr = today();
-      XLSX.writeFile(wb, `BENZ_Stock_${dateStr}.xlsx`);
+    /* ─── PRINT RECEIPT ─────────────────────────────────────────── */
+    function printReceipt(tx, shopName="BENZ ประดับยนต์") {
+      const z = document.getElementById("print-zone");
+      z.innerHTML = `
+        <div style="text-align:center;font-size:16pt;font-weight:800">${shopName}</div>
+        <div style="text-align:center;font-size:9pt;color:#555">ใบเสร็จรับเงิน</div>
+        <hr class="pr-hr"/>
+        <div class="pr"><span>เลขที่:</span><span>RCP-${Date.now().toString().slice(-6)}</span></div>
+        <div class="pr"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div>
+        <hr class="pr-hr"/>
+        <div class="pr"><span>${tx.productName}</span></div>
+        <div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div>
+        <hr class="pr-hr"/>
+        <div class="pr" style="font-size:13pt;font-weight:800"><span>รวม</span><span>฿${fmt(tx.total)}</span></div>
+        <hr class="pr-hr"/>
+        <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
+      setTimeout(()=>window.print(), 200);
     }
 
-    /* ─── RECEIPT PRINT ─── */
-    function printReceipt(tx, shopName="BENZ ประดับยนต์") {
-      const zone = document.getElementById("receipt-zone");
-      const receiptNo = `RCP-${Date.now().toString().slice(-6)}`;
-      zone.innerHTML = `
-        <div class="rcpt-center" style="font-size:16pt;font-weight:800;">${shopName}</div>
-        <div class="rcpt-center" style="font-size:9pt;color:#555;">ใบเสร็จรับเงิน</div>
-        <hr class="rcpt-hr"/>
-        <div class="rcpt-row"><span>เลขที่:</span><span>${receiptNo}</span></div>
-        <div class="rcpt-row"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div>
-        <hr class="rcpt-hr"/>
-        <div style="font-size:10pt;margin:4px 0;">
-          ${tx.items ? tx.items.map(i=>`
-            <div class="rcpt-row"><span>${i.name}</span></div>
-            <div class="rcpt-row" style="color:#555;"><span>${i.qty} x ฿${fmt(i.price)}</span><span>฿${fmt(i.qty*i.price)}</span></div>
-          `).join("") : `
-            <div class="rcpt-row"><span>${tx.productName}</span></div>
-            <div class="rcpt-row" style="color:#555;"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div>
-          `}
-        </div>
-        <hr class="rcpt-hr"/>
-        <div class="rcpt-total"><span>รวมทั้งหมด</span><span>฿${fmt(tx.total)}</span></div>
-        <hr class="rcpt-hr"/>
-        <div class="rcpt-center" style="margin-top:6px;font-size:9pt;color:#555;">ขอบคุณที่ใช้บริการ 🙏</div>
-        <div class="rcpt-center" style="font-size:9pt;color:#555;">${shopName}</div>
-      `;
-      setTimeout(() => { window.print(); }, 200);
+    /* ─── PRINT WARRANTY ─────────────────────────────────────────── */
+    function printWarranty(w, shopName="BENZ ประดับยนต์") {
+      const exp = addMonths(w.saleDate, w.months);
+      const z = document.getElementById("print-zone");
+      z.innerHTML = `
+        <div style="text-align:center;font-size:16pt;font-weight:800">${shopName}</div>
+        <div style="text-align:center;font-size:9pt;color:#555">ใบรับประกันสินค้า / การติดตั้ง</div>
+        <hr class="pr-hr"/>
+        <div class="pr"><span>เลขที่:</span><span>WR-${String(w.id).padStart(5,"0")}</span></div>
+        <div class="pr"><span>ประเภท:</span><span>${w.type==="install"?"ประกันการติดตั้ง":"ประกันสินค้า"}</span></div>
+        <hr class="pr-hr"/>
+        <div class="pr"><span>ลูกค้า:</span><span>${w.customer}</span></div>
+        <div class="pr"><span>เบอร์โทร:</span><span>${w.phone||"-"}</span></div>
+        <div class="pr"><span>ทะเบียนรถ:</span><span>${w.plate||"-"}</span></div>
+        <hr class="pr-hr"/>
+        <div class="pr"><span>สินค้า/งาน:</span><span>${w.product}</span></div>
+        <div class="pr"><span>วันที่ขาย:</span><span>${thDate(w.saleDate)}</span></div>
+        <div class="pr"><span>ระยะประกัน:</span><span>${w.months} เดือน</span></div>
+        <div class="pr"><span>วันหมดประกัน:</span><span><strong>${thDate(exp)}</strong></span></div>
+        ${w.note?`<div class="pr"><span>หมายเหตุ:</span><span>${w.note}</span></div>`:""}
+        <hr class="pr-hr"/>
+        <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
+      setTimeout(()=>window.print(), 200);
+    }
+
+    /* ─── EXCEL EXPORT ──────────────────────────────────────────── */
+    function exportAll(products, transactions, warranties) {
+      const wb = XLSX.utils.book_new();
+
+      const ws1 = XLSX.utils.json_to_sheet(products.map(p=>({
+        "รหัส":p.code,"ชื่อสินค้า":p.name,"หมวดหมู่":p.category,
+        "สต๊อก":p.stock,"ราคา":p.price,"หน่วย":p.unit,"มูลค่ารวม":p.stock*p.price,
+      })));
+      ws1["!cols"]=[8,30,12,8,10,8,14].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,ws1,"สต๊อกสินค้า");
+
+      const ws2 = XLSX.utils.json_to_sheet(transactions.map(t=>({
+        "วันที่":t.date,"ประเภท":t.type==="out"?"ขาย":"รับเข้า",
+        "สินค้า":t.productName,"จำนวน":t.qty,"ราคา":t.price,"มูลค่า":t.total,"หมายเหตุ":t.note,
+      })));
+      ws2["!cols"]=[12,8,30,8,10,12,20].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,ws2,"การขาย");
+
+      const ws3 = XLSX.utils.json_to_sheet(warranties.map(w=>({
+        "ลูกค้า":w.customer,"เบอร์โทร":w.phone,"ทะเบียน":w.plate,
+        "สินค้า/งาน":w.product,"ประเภท":w.type==="install"?"ติดตั้ง":"สินค้า",
+        "วันที่ขาย":w.saleDate,"ระยะ(เดือน)":w.months,"วันหมดประกัน":addMonths(w.saleDate,w.months),
+        "สถานะ":wStatus(w)==="ok"?"ปกติ":wStatus(w)==="warn"?"ใกล้หมด":"หมดแล้ว",
+        "วันที่เหลือ":daysLeft(addMonths(w.saleDate,w.months)),"หมายเหตุ":w.note,
+      })));
+      ws3["!cols"]=[20,14,14,25,10,12,14,14,10,10,20].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,ws3,"ประกัน");
+
+      XLSX.writeFile(wb,`BENZ_${today()}.xlsx`);
     }
 
     /* ═══════════════════════════════════════════════════════════════
        MAIN APP
     ═══════════════════════════════════════════════════════════════ */
-    const TABS = ["หน้าหลัก","สต๊อก","นำเข้า/ออก","รายงาน","ตั้งค่า"];
-    const ICONS = { "หน้าหลัก":"🏠","สต๊อก":"📦","นำเข้า/ออก":"🔄","รายงาน":"📊","ตั้งค่า":"⚙️" };
+    const TABS = ["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","รายงาน"];
+    const ICONS = {"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
 
     function App() {
-      const [tab,setTab] = useState("หน้าหลัก");
-      const [products, setProducts]     = usePersist("benz_products", DEF_PRODUCTS);
-      const [transactions, setTxs]      = usePersist("benz_transactions", DEF_TX);
-      const [shopName]                   = usePersist("benz_shopname", "BENZ ประดับยนต์");
-      const [modal, setModal]           = useState(null);
-      const [form, setForm]             = useState({});
-      const [editProduct, setEditProduct] = useState(null);
-      const [searchQ, setSearchQ]       = useState("");
-      const [reportDate, setReportDate] = useState(today());
-      const [toast, setToast]           = useState(null);
-      const [lastReceipt, setLastReceipt] = useState(null);
+      const [tab, setTab]                   = useState("หน้าหลัก");
+      const [products, setProducts]         = usePersist("benz_products",    DEF_PRODUCTS);
+      const [transactions, setTxs]          = usePersist("benz_transactions",DEF_TX);
+      const [warranties, setWarranties]     = usePersist("benz_warranties",  DEF_WARRANTIES);
+      const [shopName]                       = usePersist("benz_shopname",    "BENZ ประดับยนต์");
+      const [modal, setModal]               = useState(null);
+      const [form, setForm]                 = useState({});
+      const [editProduct, setEditProduct]   = useState(null);
+      const [editWarranty, setEditWarranty] = useState(null);
+      const [searchQ, setSearchQ]           = useState("");
+      const [wSearchQ, setWSearchQ]         = useState("");
+      const [reportDate, setReportDate]     = useState(today());
+      const [toast, setToast]               = useState(null);
+      const [lastReceipt, setLastReceipt]   = useState(null);
+      const [wFilter, setWFilter]           = useState("all");
 
-      const showToast = useCallback((msg, type="ok") => {
-        setToast({msg,type}); setTimeout(()=>setToast(null), 2800);
-      }, []);
-
+      const showToast = useCallback((msg,type="ok")=>{
+        setToast({msg,type}); setTimeout(()=>setToast(null),2800);
+      },[]);
       const closeModal = () => { setModal(null); setForm({}); };
 
-      /* ── TRANSACTION SUBMIT ── */
-      const submitTx = (type) => {
+      /* ── STOCK TX ── */
+      const submitTx = type => {
         const product = products.find(p=>p.id===parseInt(form.productId));
         if (!product) return showToast("กรุณาเลือกสินค้า","err");
         const qty = parseInt(form.qty);
-        if (!qty||qty<=0) return showToast("กรุณากรอกจำนวนที่ถูกต้อง","err");
+        if (!qty||qty<=0) return showToast("กรุณากรอกจำนวน","err");
         if (type==="out"&&product.stock<qty) return showToast("⚠️ สต๊อกไม่เพียงพอ!","err");
-        const tx = {
-          id: Date.now(), date: form.date||today(), time: nowTs(),
-          type, productId: product.id, productName: product.name,
-          qty, price: product.price, note: form.note||(type==="out"?"ขายลูกค้า":"รับสินค้า"),
-          total: product.price * qty,
-        };
+        const tx = { id:Date.now(), date:form.date||today(), time:nowTs(), type,
+          productId:product.id, productName:product.name, qty,
+          price:product.price, note:form.note||(type==="out"?"ขายลูกค้า":"รับสินค้า"),
+          total:product.price*qty };
         setTxs(prev=>[tx,...prev]);
-        setProducts(prev=>prev.map(p=>p.id===product.id
-          ? {...p, stock: type==="in" ? p.stock+qty : p.stock-qty} : p));
-        if (type==="out") setLastReceipt(tx);
-        closeModal();
-        showToast(type==="in" ? `✅ รับสินค้าเข้า +${qty}` : `✅ บันทึกการขาย -${qty}`);
+        setProducts(prev=>prev.map(p=>p.id===product.id?{...p,stock:type==="in"?p.stock+qty:p.stock-qty}:p));
+        if(type==="out") setLastReceipt(tx);
+        closeModal(); showToast(type==="in"?`✅ รับสินค้าเข้า +${qty}`:`✅ บันทึกการขาย -${qty}`);
       };
 
       /* ── ADD PRODUCT ── */
       const submitNewProduct = () => {
-        if (!form.name||!form.code||!form.price) return showToast("กรอกข้อมูลให้ครบก่อนนะครับ","err");
+        if (!form.name||!form.code||!form.price) return showToast("กรอกข้อมูลให้ครบ","err");
         if (products.find(p=>p.code===form.code)) return showToast("รหัสสินค้านี้มีอยู่แล้ว","err");
-        setProducts(prev=>[...prev,{
-          id: Date.now(), code: form.code, name: form.name,
-          category: form.category||"ทั่วไป", stock: parseInt(form.stock)||0,
-          price: parseFloat(form.price)||0, unit: form.unit||"ชิ้น", minStock: 5,
-        }]);
+        setProducts(prev=>[...prev,{ id:Date.now(), code:form.code, name:form.name,
+          category:form.category||"ทั่วไป", stock:parseInt(form.stock)||0,
+          price:parseFloat(form.price)||0, unit:form.unit||"ชิ้น", minStock:5 }]);
         closeModal(); showToast("✅ เพิ่มสินค้าใหม่สำเร็จ");
       };
 
@@ -201,24 +219,56 @@
         setProducts(prev=>prev.map(p=>p.id===editProduct.id?{...editProduct}:p));
         setEditProduct(null); showToast("✅ แก้ไขสินค้าสำเร็จ");
       };
-
-      const delProduct = (id) => {
+      const delProduct = id => {
         if (!window.confirm("ลบสินค้านี้?")) return;
         setProducts(prev=>prev.filter(p=>p.id!==id));
         setEditProduct(null); showToast("🗑️ ลบสินค้าแล้ว");
       };
 
-      const lowStock = products.filter(p=>p.stock<p.minStock);
-      const todayTx  = transactions.filter(t=>t.date===reportDate);
-      const todaySales = todayTx.filter(t=>t.type==="out");
-      const todayIn    = todayTx.filter(t=>t.type==="in");
-      const todayRev   = todaySales.reduce((s,t)=>s+t.total,0);
+      /* ── WARRANTY CRUD ── */
+      const submitWarranty = () => {
+        if (!form.customer||!form.product||!form.saleDate||!form.months)
+          return showToast("กรอกข้อมูลให้ครบก่อนครับ","err");
+        const data = { customer:form.customer, phone:form.phone||"", plate:form.plate||"",
+          product:form.product, type:form.wtype||"install",
+          saleDate:form.saleDate, months:parseInt(form.months)||12, note:form.note||"" };
+        if (form.editId) {
+          setWarranties(prev=>prev.map(w=>w.id===form.editId?{...w,...data}:w));
+          showToast("✅ แก้ไขประกันสำเร็จ");
+        } else {
+          setWarranties(prev=>[{id:Date.now(),...data},...prev]);
+          showToast("✅ เพิ่มรายการประกันสำเร็จ");
+        }
+        closeModal();
+      };
+      const delWarranty = id => {
+        if (!window.confirm("ลบรายการประกันนี้?")) return;
+        setWarranties(prev=>prev.filter(w=>w.id!==id));
+        setModal(null); setForm({}); showToast("🗑️ ลบรายการแล้ว");
+      };
 
-      const filtered = products.filter(p=>
+      /* ── COMPUTED ── */
+      const lowStock   = products.filter(p=>p.stock<p.minStock);
+      const warnW      = warranties.filter(w=>wStatus(w)==="warn");
+      const expW       = warranties.filter(w=>wStatus(w)==="exp");
+      const todaySales = transactions.filter(t=>t.date===reportDate&&t.type==="out");
+      const todayIn    = transactions.filter(t=>t.date===reportDate&&t.type==="in");
+      const todayRev   = todaySales.reduce((s,t)=>s+t.total,0);
+      const filtProd   = products.filter(p=>
         p.name.toLowerCase().includes(searchQ.toLowerCase())||
         p.code.toLowerCase().includes(searchQ.toLowerCase())||
-        p.category.toLowerCase().includes(searchQ.toLowerCase())
-      );
+        p.category.toLowerCase().includes(searchQ.toLowerCase()));
+      const filtW = warranties
+        .filter(w=>wFilter==="all"||wStatus(w)===wFilter)
+        .filter(w=>!wSearchQ||w.customer.includes(wSearchQ)||w.plate?.includes(wSearchQ)||w.product.includes(wSearchQ)||w.phone?.includes(wSearchQ));
+
+      /* ── WARRANTY MODAL OPEN ── */
+      const openWarrantyModal = (w=null) => {
+        setForm(w ? { editId:w.id, customer:w.customer, phone:w.phone, plate:w.plate,
+          product:w.product, wtype:w.type, saleDate:w.saleDate,
+          months:String(w.months), note:w.note } : { saleDate:today(), months:"12", wtype:"install" });
+        setModal("warranty");
+      };
 
       return (
         <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",maxWidth:440,margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0"}}>
@@ -227,45 +277,55 @@
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
-                <div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการสต๊อก</div>
+                <div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div>
                 <div style={{fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.2}}>{shopName}</div>
               </div>
               <div style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#ff6b00,#ff9500)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:"0 0 18px rgba(255,107,0,.5)"}}>🚗</div>
             </div>
-            {lowStock.length>0&&(
-              <div style={{marginTop:8,background:"rgba(255,50,50,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"5px 10px",fontSize:11,color:"#ff6666",display:"flex",alignItems:"center",gap:5}}>
-                <span>⚠️</span><span>สินค้าใกล้หมด <strong>{lowStock.length} รายการ</strong> — {lowStock.map(p=>p.name.split(" ")[0]).join(", ")}</span>
-              </div>
-            )}
+            {/* ALERTS ROW */}
+            <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:lowStock.length||expW.length||warnW.length?8:0}}>
+              {lowStock.length>0&&<div style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff6666",display:"flex",gap:5,alignItems:"center"}}>
+                <span>📦</span><span>สต๊อกใกล้หมด <strong>{lowStock.length} รายการ</strong></span>
+              </div>}
+              {expW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff4444",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff8888",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}>
+                <span>🛡️</span><span>ประกันหมดแล้ว <strong>{expW.length} รายการ</strong> — แตะเพื่อดู</span>
+              </div>}
+              {warnW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,200,0,.08)",border:"1px solid #ffcc0055",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ffcc00",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}>
+                <span>⚠️</span><span>ประกันใกล้หมด <strong>{warnW.length} รายการ</strong> — แตะเพื่อดู</span>
+              </div>}
+            </div>
           </div>
 
           {/* TOAST */}
-          {toast&&<div style={{position:"fixed",top:108,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?"#cc2222":"#1a7a40",color:"#fff",padding:"9px 18px",borderRadius:10,zIndex:999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.5)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
+          {toast&&<div style={{position:"fixed",top:110,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?"#cc2222":"#1a7a40",color:"#fff",padding:"9px 18px",borderRadius:10,zIndex:999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.5)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
 
           {/* LAST RECEIPT BANNER */}
-          {lastReceipt&&(
+          {lastReceipt&&tab==="หน้าหลัก"&&(
             <div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:12,color:"#aaa"}}>🧾 บันทึกล่าสุด: <strong style={{color:"#fff"}}>{lastReceipt.productName}</strong></div>
-              <button onClick={()=>printReceipt(lastReceipt,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ พิมพ์ใบเสร็จ</button>
+              <div style={{fontSize:12,color:"#aaa"}}>🧾 <strong style={{color:"#fff"}}>{lastReceipt.productName}</strong></div>
+              <button onClick={()=>printReceipt(lastReceipt,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ ใบเสร็จ</button>
             </div>
           )}
 
           {/* CONTENT */}
           <div style={{padding:"0 16px"}}>
-            {tab==="หน้าหลัก"&&<HomeTab products={products} todayRev={todayRev} todaySales={todaySales} lowStock={lowStock} setTab={setTab} setModal={setModal} transactions={transactions} />}
-            {tab==="สต๊อก"&&<StockTab products={filtered} searchQ={searchQ} setSearchQ={setSearchQ} setEditProduct={setEditProduct} lowStock={lowStock} setModal={setModal} />}
-            {tab==="นำเข้า/ออก"&&<TxTab transactions={transactions} setModal={setModal} printReceipt={(tx)=>printReceipt(tx,shopName)} />}
-            {tab==="รายงาน"&&<ReportTab reportDate={reportDate} setReportDate={setReportDate} todaySales={todaySales} todayIn={todayIn} todayRev={todayRev} transactions={transactions} products={products} exportExcel={()=>exportExcel(products,transactions)} />}
-            {tab==="ตั้งค่า"&&<SettingsTab products={products} setModal={setModal} exportExcel={()=>exportExcel(products,transactions)} transactions={transactions} shopName={shopName} />}
+            {tab==="หน้าหลัก" && <HomeTab products={products} todayRev={todayRev} todaySales={todaySales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openWarrantyModal={openWarrantyModal} />}
+            {tab==="สต๊อก"   && <StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditProduct={setEditProduct} lowStock={lowStock} setModal={setModal} />}
+            {tab==="ขาย/รับ" && <TxTab transactions={transactions} setModal={setModal} printReceipt={tx=>printReceipt(tx,shopName)} />}
+            {tab==="ประกัน"  && <WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openWarrantyModal={openWarrantyModal} setModal={setModal} setForm={setForm} delWarranty={delWarranty} printWarranty={w=>printWarranty(w,shopName)} allWarranties={warranties} />}
+            {tab==="รายงาน" && <ReportTab reportDate={reportDate} setReportDate={setReportDate} todaySales={todaySales} todayIn={todayIn} todayRev={todayRev} transactions={transactions} products={products} warranties={warranties} exportAll={()=>exportAll(products,transactions,warranties)} />}
           </div>
 
           {/* BOTTOM NAV */}
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
             {TABS.map(t=>(
-              <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0"}}>
+              <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0",position:"relative"}}>
                 <span style={{fontSize:19}}>{ICONS[t]}</span>
                 <span style={{fontSize:9,fontWeight:600,color:tab===t?"#ff6b00":"#555"}}>{t}</span>
                 {tab===t&&<div style={{width:4,height:4,borderRadius:"50%",background:"#ff6b00",marginTop:1}}/>}
+                {/* badge */}
+                {t==="ประกัน"&&(expW.length+warnW.length>0)&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:expW.length?"#ff3333":"#ffcc00"}}/>}
+                {t==="สต๊อก"&&lowStock.length>0&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:"#ff3333"}}/>}
               </button>
             ))}
           </div>
@@ -277,90 +337,100 @@
                 <option value="">-- เลือกสินค้า --</option>
                 {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
               </Sel>
-              <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0" />
-              <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))} />
-              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder={modal==="in"?"รับจากซัพพลายเออร์":"ขายลูกค้า"} />
-              {form.productId&&form.qty&&(
-                <div style={{background:"#1a1a1a",borderRadius:8,padding:10,fontSize:13,color:"#aaa"}}>
-                  💰 มูลค่า: <strong style={{color:"#ff9500"}}>฿{fmt((products.find(p=>p.id===parseInt(form.productId))?.price||0)*parseInt(form.qty||0))} บาท</strong>
-                </div>
-              )}
+              <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0"/>
+              <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
+              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder={modal==="in"?"รับจากซัพพลายเออร์":"ขายลูกค้า"}/>
+              {form.productId&&form.qty&&<div style={{background:"#1a1a1a",borderRadius:8,padding:10,fontSize:13,color:"#aaa"}}>💰 มูลค่า: <strong style={{color:"#ff9500"}}>฿{fmt((products.find(p=>p.id===parseInt(form.productId))?.price||0)*parseInt(form.qty||0))} บาท</strong></div>}
               <OBtn onClick={()=>submitTx(modal)}>{modal==="in"?"✅ บันทึกรับสินค้า":"✅ บันทึกการขาย"}</OBtn>
             </Modal>
           )}
 
           {modal==="addProduct"&&(
             <Modal title="➕ เพิ่มสินค้าใหม่" onClose={closeModal}>
-              <Inp label="รหัสสินค้า *" value={form.code||""} onChange={v=>setForm(f=>({...f,code:v}))} placeholder="BZ009" />
-              <Inp label="ชื่อสินค้า *" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="ชื่อสินค้า" />
-              <Inp label="หมวดหมู่" value={form.category||""} onChange={v=>setForm(f=>({...f,category:v}))} placeholder="ฟิล์ม / กล้อง / พรม..." />
-              <Inp label="ราคา (บาท) *" type="number" value={form.price||""} onChange={v=>setForm(f=>({...f,price:v}))} placeholder="0" />
-              <Inp label="สต๊อกเริ่มต้น" type="number" value={form.stock||""} onChange={v=>setForm(f=>({...f,stock:v}))} placeholder="0" />
-              <Inp label="หน่วย" value={form.unit||""} onChange={v=>setForm(f=>({...f,unit:v}))} placeholder="ชิ้น / ม้วน / ชุด" />
+              <Inp label="รหัสสินค้า *" value={form.code||""} onChange={v=>setForm(f=>({...f,code:v}))} placeholder="BZ009"/>
+              <Inp label="ชื่อสินค้า *" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="ชื่อสินค้า"/>
+              <Inp label="หมวดหมู่" value={form.category||""} onChange={v=>setForm(f=>({...f,category:v}))} placeholder="ฟิล์ม / กล้อง / พรม..."/>
+              <Inp label="ราคา (บาท) *" type="number" value={form.price||""} onChange={v=>setForm(f=>({...f,price:v}))} placeholder="0"/>
+              <Inp label="สต๊อกเริ่มต้น" type="number" value={form.stock||""} onChange={v=>setForm(f=>({...f,stock:v}))} placeholder="0"/>
+              <Inp label="หน่วย" value={form.unit||""} onChange={v=>setForm(f=>({...f,unit:v}))} placeholder="ชิ้น / ม้วน / ชุด"/>
               <OBtn onClick={submitNewProduct}>✅ เพิ่มสินค้า</OBtn>
             </Modal>
           )}
 
           {editProduct&&(
             <Modal title="✏️ แก้ไขสินค้า" onClose={()=>setEditProduct(null)}>
-              <div style={{fontSize:11,color:"#555",marginBottom:-4}}>รหัส: {editProduct.code}</div>
-              <Inp label="ชื่อสินค้า" value={editProduct.name} onChange={v=>setEditProduct(p=>({...p,name:v}))} />
-              <Inp label="หมวดหมู่" value={editProduct.category} onChange={v=>setEditProduct(p=>({...p,category:v}))} />
-              <Inp label="ราคา (บาท)" type="number" value={editProduct.price} onChange={v=>setEditProduct(p=>({...p,price:parseFloat(v)}))} />
-              <Inp label="สต๊อกปัจจุบัน" type="number" value={editProduct.stock} onChange={v=>setEditProduct(p=>({...p,stock:parseInt(v)}))} />
-              <Inp label="เกณฑ์แจ้งเตือน (ชิ้น)" type="number" value={editProduct.minStock} onChange={v=>setEditProduct(p=>({...p,minStock:parseInt(v)}))} />
-              <Inp label="หน่วย" value={editProduct.unit} onChange={v=>setEditProduct(p=>({...p,unit:v}))} />
+              <div style={{fontSize:11,color:"#555"}}>รหัส: {editProduct.code}</div>
+              <Inp label="ชื่อสินค้า" value={editProduct.name} onChange={v=>setEditProduct(p=>({...p,name:v}))}/>
+              <Inp label="หมวดหมู่" value={editProduct.category} onChange={v=>setEditProduct(p=>({...p,category:v}))}/>
+              <Inp label="ราคา (บาท)" type="number" value={editProduct.price} onChange={v=>setEditProduct(p=>({...p,price:parseFloat(v)}))}/>
+              <Inp label="สต๊อกปัจจุบัน" type="number" value={editProduct.stock} onChange={v=>setEditProduct(p=>({...p,stock:parseInt(v)}))}/>
+              <Inp label="เกณฑ์แจ้งเตือน (ชิ้น)" type="number" value={editProduct.minStock} onChange={v=>setEditProduct(p=>({...p,minStock:parseInt(v)}))}/>
+              <Inp label="หน่วย" value={editProduct.unit} onChange={v=>setEditProduct(p=>({...p,unit:v}))}/>
               <OBtn onClick={submitEdit}>✅ บันทึกการแก้ไข</OBtn>
-              <button onClick={()=>delProduct(editProduct.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer",marginTop:4}}>🗑️ ลบสินค้านี้</button>
+              <button onClick={()=>delProduct(editProduct.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบสินค้านี้</button>
+            </Modal>
+          )}
+
+          {modal==="warranty"&&(
+            <Modal title={form.editId?"✏️ แก้ไขประกัน":"🛡️ เพิ่มรายการประกัน"} onClose={closeModal}>
+              <SecTitle>ข้อมูลลูกค้า</SecTitle>
+              <Inp label="ชื่อลูกค้า *" value={form.customer||""} onChange={v=>setForm(f=>({...f,customer:v}))} placeholder="ชื่อ-นามสกุล"/>
+              <Inp label="เบอร์โทร" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))} placeholder="0xx-xxx-xxxx" type="tel"/>
+              <Inp label="ทะเบียนรถ" value={form.plate||""} onChange={v=>setForm(f=>({...f,plate:v}))} placeholder="กข 1234 กทม"/>
+              <SecTitle>ข้อมูลประกัน</SecTitle>
+              <Sel label="ประเภทประกัน" value={form.wtype||"install"} onChange={v=>setForm(f=>({...f,wtype:v}))}>
+                <option value="install">🔧 ประกันการติดตั้ง (ฟิล์ม, กล้อง, ฯลฯ)</option>
+                <option value="product">📦 ประกันสินค้า (Warranty)</option>
+              </Sel>
+              <Inp label="ชื่อสินค้า / งานที่ทำ *" value={form.product||""} onChange={v=>setForm(f=>({...f,product:v}))} placeholder="เช่น ฟิล์ม 3M Carbon รอบคัน"/>
+              <Inp label="วันที่ขาย *" type="date" value={form.saleDate||today()} onChange={v=>setForm(f=>({...f,saleDate:v}))}/>
+              <Sel label="ระยะประกัน" value={form.months||"12"} onChange={v=>setForm(f=>({...f,months:v}))}>
+                {[3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน ({Math.round(m/12*10)/10} ปี)</option>)}
+              </Sel>
+              {form.saleDate&&form.months&&<div style={{background:"#0a1a0a",border:"1px solid #1a3a1a",borderRadius:8,padding:10,fontSize:12,color:"#aaa"}}>
+                📅 วันหมดประกัน: <strong style={{color:"#00cc66"}}>{thDate(addMonths(form.saleDate,parseInt(form.months)||0))}</strong>
+              </div>}
+              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="รายละเอียดเพิ่มเติม"/>
+              <OBtn onClick={submitWarranty}>{form.editId?"✅ บันทึกการแก้ไข":"✅ เพิ่มรายการประกัน"}</OBtn>
+              {form.editId&&<button onClick={()=>delWarranty(form.editId)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>}
             </Modal>
           )}
         </div>
       );
     }
 
-    /* ═══ TABS ═══════════════════════════════════════════════════ */
+    /* ═══ TABS ════════════════════════════════════════════════════ */
 
-    function HomeTab({products,todayRev,todaySales,lowStock,setTab,setModal,transactions}) {
+    function HomeTab({products,todayRev,todaySales,lowStock,warnW,expW,setTab,setModal,transactions,openWarrantyModal}) {
       const totalStock = products.reduce((s,p)=>s+p.stock,0);
       const totalVal   = products.reduce((s,p)=>s+p.stock*p.price,0);
       return (
         <div style={{paddingTop:14}}>
-          <div style={{fontSize:11,color:"#555",marginBottom:6}}>📅 วันนี้ {thDate(today())}</div>
+          <div style={{fontSize:11,color:"#555",marginBottom:8}}>📅 วันนี้ {thDate(today())}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <Stat icon="💰" label="ยอดขายวันนี้"    val={`฿${fmt(todayRev)}`}    color="#ff6b00"/>
+            <Stat icon="💰" label="ยอดขายวันนี้"    val={`฿${fmt(todayRev)}`}           color="#ff6b00"/>
             <Stat icon="🛒" label="รายการขายวันนี้" val={`${todaySales.length} รายการ`} color="#00aaff"/>
-            <Stat icon="📦" label="สต๊อกรวม"        val={`${fmt(totalStock)} ชิ้น`}   color="#00cc66"/>
-            <Stat icon="💎" label="มูลค่าสต๊อก"     val={`฿${fmt(totalVal)}`}    color="#aa66ff"/>
+            <Stat icon="📦" label="สต๊อกรวม"        val={`${fmt(totalStock)} ชิ้น`}     color="#00cc66"/>
+            <Stat icon="🛡️" label="ประกันใกล้หมด"   val={`${expW.length+warnW.length} รายการ`} color={expW.length?"#ff3333":"#ffcc00"}/>
           </div>
-
-          {lowStock.length>0&&(
-            <div style={{marginBottom:14}}>
-              <SecTitle>⚠️ สินค้าใกล้หมด</SecTitle>
-              {lowStock.map(p=>(
-                <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff3333",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
-                    <div style={{fontSize:11,color:"#666"}}>{p.code} · เกณฑ์แจ้งเตือน {p.minStock} ชิ้น</div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:22,fontWeight:800,color:"#ff3333"}}>{p.stock}</div>
-                    <div style={{fontSize:10,color:"#ff6666"}}>{p.unit}เหลือ</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           <SecTitle>การดำเนินการด่วน</SecTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <ABtn icon="📥" label="รับสินค้าเข้า"  color="#00cc66" onClick={()=>setModal("in")}/>
-            <ABtn icon="📤" label="บันทึกการขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
-            <ABtn icon="➕" label="เพิ่มสินค้าใหม่" color="#00aaff" onClick={()=>setModal("addProduct")}/>
-            <ABtn icon="📊" label="ดูรายงาน"       color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
+            <ABtn icon="📥" label="รับสินค้า"   color="#00cc66" onClick={()=>setModal("in")}/>
+            <ABtn icon="📤" label="บันทึกขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
+            <ABtn icon="🛡️" label="เพิ่มประกัน" color="#00aaff" onClick={()=>openWarrantyModal()}/>
+            <ABtn icon="📊" label="รายงาน"      color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
           </div>
-
-          <SecTitle>รายการล่าสุดวันนี้</SecTitle>
-          {transactions.filter(t=>t.date===today()).slice(0,5).map(t=><TxRow key={t.id} tx={t}/>)}
+          {lowStock.length>0&&<>
+            <SecTitle>📦 สต๊อกใกล้หมด</SecTitle>
+            {lowStock.map(p=>(
+              <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff333344",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"#666"}}>{p.code}</div></div>
+                <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:800,color:"#ff3333"}}>{p.stock}</div><div style={{fontSize:10,color:"#ff6666"}}>{p.unit}เหลือ</div></div>
+              </div>
+            ))}
+          </>}
+          <SecTitle>รายการล่าสุด</SecTitle>
+          {transactions.filter(t=>t.date===today()).slice(0,4).map(t=><TxRow key={t.id} tx={t}/>)}
           {transactions.filter(t=>t.date===today()).length===0&&<Empty msg="ยังไม่มีรายการวันนี้"/>}
         </div>
       );
@@ -372,36 +442,34 @@
           <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="🔍 ค้นหาสินค้า รหัส หมวดหมู่..."
             style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:10}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:11,color:"#555"}}>ทั้งหมด {products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length} รายการ</span>}</div>
+            <div style={{fontSize:11,color:"#555"}}>{products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length}</span>}</div>
             <button onClick={()=>setModal("addProduct")} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
           </div>
           {products.map(p=>{
-            const isLow = p.stock<p.minStock;
-            return (
-              <div key={p.id} onClick={()=>setEditProduct({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
-                    <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
-                    <span style={{fontSize:10,color:"#555",background:"#222",padding:"1px 6px",borderRadius:4}}>{p.category}</span>
-                  </div>
-                  <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
-                  <div style={{fontSize:11,color:"#666"}}>฿{fmt(p.price)} / {p.unit}</div>
+            const isLow=p.stock<p.minStock;
+            return <div key={p.id} onClick={()=>setEditProduct({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
+                  <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
+                  <span style={{fontSize:10,color:"#555",background:"#222",padding:"1px 6px",borderRadius:4}}>{p.category}</span>
                 </div>
-                <div style={{textAlign:"right",minWidth:54}}>
-                  <div style={{fontSize:22,fontWeight:800,color:isLow?"#ff3333":"#00cc66"}}>{p.stock}</div>
-                  <div style={{fontSize:10,color:"#555"}}>{p.unit}</div>
-                  {isLow&&<div style={{fontSize:9,color:"#ff6666"}}>⚠️ ต่ำกว่าเกณฑ์</div>}
-                </div>
+                <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
+                <div style={{fontSize:11,color:"#666"}}>฿{fmt(p.price)} / {p.unit}</div>
               </div>
-            );
+              <div style={{textAlign:"right",minWidth:54}}>
+                <div style={{fontSize:22,fontWeight:800,color:isLow?"#ff3333":"#00cc66"}}>{p.stock}</div>
+                <div style={{fontSize:10,color:"#555"}}>{p.unit}</div>
+                {isLow&&<div style={{fontSize:9,color:"#ff6666"}}>⚠️ ต่ำกว่าเกณฑ์</div>}
+              </div>
+            </div>;
           })}
         </div>
       );
     }
 
     function TxTab({transactions,setModal,printReceipt}) {
-      const [filter,setFilter] = useState("all");
-      const filtered = filter==="all" ? transactions : transactions.filter(t=>t.type===filter);
+      const [filter,setFilter]=useState("all");
+      const list=filter==="all"?transactions:transactions.filter(t=>t.type===filter);
       return (
         <div style={{paddingTop:14}}>
           <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -410,39 +478,148 @@
             ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-            <ABtn icon="📥" label="รับสินค้า"   color="#00cc66" onClick={()=>setModal("in")}/>
-            <ABtn icon="📤" label="บันทึกขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
+            <ABtn icon="📥" label="รับสินค้า" color="#00cc66" onClick={()=>setModal("in")}/>
+            <ABtn icon="📤" label="บันทึกขาย" color="#ff6b00" onClick={()=>setModal("out")}/>
           </div>
-          {filtered.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printReceipt(t):null}/>)}
-          {filtered.length===0&&<Empty msg="ไม่มีรายการ"/>}
+          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printReceipt(t):null}/>)}
+          {list.length===0&&<Empty msg="ไม่มีรายการ"/>}
         </div>
       );
     }
 
-    function ReportTab({reportDate,setReportDate,todaySales,todayIn,todayRev,transactions,products,exportExcel}) {
-      const last7 = Array.from({length:7},(_,i)=>{
-        const d = new Date(); d.setDate(d.getDate()-(6-i));
-        const ds = d.toISOString().slice(0,10);
-        const rev = transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0);
-        return {ds, rev, label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})};
-      });
-      const maxRev = Math.max(...last7.map(d=>d.rev),1);
+    /* ─── WARRANTY TAB ─────────────────────────────────────────── */
+    function WarrantyTab({warranties,wFilter,setWFilter,wSearchQ,setWSearchQ,openWarrantyModal,delWarranty,printWarranty,allWarranties}) {
+      const [detail, setDetail] = useState(null);
+      const filters=[["all","ทั้งหมด"],["ok","ปกติ"],["warn","ใกล้หมด"],["exp","หมดแล้ว"]];
+      const counts={all:allWarranties.length,ok:allWarranties.filter(w=>wStatus(w)==="ok").length,warn:allWarranties.filter(w=>wStatus(w)==="warn").length,exp:allWarranties.filter(w=>wStatus(w)==="exp").length};
 
-      const topSell = {};
-      transactions.filter(t=>t.type==="out").forEach(t=>{ topSell[t.productName]=(topSell[t.productName]||0)+t.qty; });
-      const topList = Object.entries(topSell).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      if (detail) {
+        const w = allWarranties.find(x=>x.id===detail);
+        if (!w) { setDetail(null); return null; }
+        const s = wStatus(w);
+        const exp = addMonths(w.saleDate, w.months);
+        const dl = daysLeft(exp);
+        const p = wPct(w);
+        const sColor = s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
+        return (
+          <div style={{paddingTop:14}}>
+            <button onClick={()=>setDetail(null)} style={{background:"none",border:"none",color:"#ff6b00",fontSize:13,cursor:"pointer",marginBottom:12,padding:0}}>← กลับ</button>
+            <div style={{background:"#161616",border:"1px solid #2a2a2a",borderRadius:14,padding:16,marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>{w.customer}</div>
+                  <div style={{fontSize:13,fontFamily:"monospace",color:"#00aaff",marginTop:3,background:"rgba(0,170,255,.08)",padding:"2px 8px",borderRadius:6,display:"inline-block",border:"1px solid rgba(0,170,255,.2)"}}>{w.plate||"ไม่ระบุทะเบียน"}</div>
+                </div>
+                <WBadge s={s}/>
+              </div>
+              {w.phone&&<div style={{fontSize:12,color:"#666",marginBottom:8}}>📞 {w.phone}</div>}
+
+              <div style={{background:"#0d0d0d",borderRadius:10,padding:12,marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:6}}>{w.type==="install"?"🔧":"📦"} {w.product}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}}>
+                  <div><div style={{color:"#555"}}>ประเภท</div><div style={{fontWeight:600,color:"#aaa"}}>{w.type==="install"?"ประกันการติดตั้ง":"ประกันสินค้า"}</div></div>
+                  <div><div style={{color:"#555"}}>ระยะประกัน</div><div style={{fontWeight:600,color:"#aaa"}}>{w.months} เดือน</div></div>
+                  <div><div style={{color:"#555"}}>วันที่ขาย</div><div style={{fontWeight:600,color:"#aaa"}}>{thDate(w.saleDate)}</div></div>
+                  <div><div style={{color:"#555"}}>วันหมดประกัน</div><div style={{fontWeight:600,color:sColor}}>{thDate(exp)}</div></div>
+                </div>
+                {w.note&&<div style={{marginTop:8,fontSize:12,color:"#555"}}>📝 {w.note}</div>}
+              </div>
+
+              <div style={{background:s==="ok"?"rgba(0,204,102,.08)":s==="warn"?"rgba(255,204,0,.08)":"rgba(255,51,51,.08)",border:`1px solid ${sColor}33`,borderRadius:10,padding:12,textAlign:"center"}}>
+                <div style={{fontSize:24,fontWeight:800,color:sColor}}>
+                  {dl>=0?`เหลืออีก ${dl} วัน`:`หมดไปแล้ว ${Math.abs(dl)} วัน`}
+                </div>
+                <div className="prog-bar" style={{marginTop:8}}>
+                  <div className="prog-fill" style={{width:`${p}%`,background:sColor}}/>
+                </div>
+                <div style={{fontSize:10,color:"#555",marginTop:4}}>ใช้ประกันไปแล้ว {p}%</div>
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <button onClick={()=>printWarranty(w)} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>🖨️ พิมพ์ใบประกัน</button>
+              <button onClick={()=>{setDetail(null);openWarrantyModal(w);}} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>✏️ แก้ไข</button>
+            </div>
+            <button onClick={()=>{delWarranty(w.id);setDetail(null);}} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>
+          </div>
+        );
+      }
 
       return (
         <div style={{paddingTop:14}}>
-          <div style={{marginBottom:12}}>
-            <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>📅 เลือกวันที่</label>
-            <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)}
-              style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+          <input value={wSearchQ} onChange={e=>setWSearchQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / ทะเบียน / สินค้า / เบอร์โทร"
+            style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:10}}/>
+          <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
+            {filters.map(([v,l])=>(
+              <button key={v} onClick={()=>setWFilter(v)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:wFilter===v?"#ff6b00":"#1a1a1a",color:wFilter===v?"#fff":"#666"}}>
+                {l} ({counts[v]})
+              </button>
+            ))}
           </div>
+          <div style={{marginBottom:12}}>
+            <button onClick={()=>openWarrantyModal()} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              🛡️ + เพิ่มรายการประกันใหม่
+            </button>
+          </div>
+          {warranties.map(w=>{
+            const s=wStatus(w); const exp=addMonths(w.saleDate,w.months); const dl=daysLeft(exp); const p=wPct(w);
+            const sColor=s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
+            return (
+              <div key={w.id} onClick={()=>setDetail(w.id)} style={{background:"#161616",border:`1px solid ${s==="exp"?"#ff333344":s==="warn"?"#ffcc0033":"#2a2a2a"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",position:"relative",overflow:"hidden"}}>
+                <div style={{position:"absolute",top:0,left:0,width:4,height:"100%",background:sColor,borderRadius:"4px 0 0 4px"}}/>
+                <div style={{paddingLeft:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{w.customer}</div>
+                      <div style={{fontSize:12,fontFamily:"monospace",color:"#00aaff",marginTop:2}}>{w.plate||"ไม่ระบุทะเบียน"}</div>
+                    </div>
+                    <WBadge s={s}/>
+                  </div>
+                  <div style={{fontSize:12,color:"#888",marginBottom:6}}>{w.type==="install"?"🔧":"📦"} {w.product}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11,marginBottom:8}}>
+                    <div style={{color:"#555"}}>ขาย: <span style={{color:"#aaa"}}>{thDate(w.saleDate)}</span></div>
+                    <div style={{color:"#555"}}>หมด: <span style={{color:sColor,fontWeight:600}}>{thDate(exp)}</span></div>
+                    {w.phone&&<div style={{color:"#555"}}>📞 <span style={{color:"#888"}}>{w.phone}</span></div>}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:3}}>
+                    <span>ใช้ไป {p}%</span>
+                    <span style={{color:sColor,fontWeight:600}}>{dl>=0?`เหลือ ${dl} วัน`:`หมด ${Math.abs(dl)} วันแล้ว`}</span>
+                  </div>
+                  <div className="prog-bar"><div className="prog-fill" style={{width:`${p}%`,background:sColor}}/></div>
+                </div>
+              </div>
+            );
+          })}
+          {warranties.length===0&&<Empty msg="ไม่มีรายการประกัน"/>}
+        </div>
+      );
+    }
+
+    /* ─── WARRANTY BADGE ───────────────────────────────────────── */
+    function WBadge({s}) {
+      const map={ok:{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"},warn:{bg:"rgba(255,204,0,.1)",c:"#ffcc00",b:"rgba(255,204,0,.3)",t:"⚠️ ใกล้หมด"},exp:{bg:"rgba(255,51,51,.12)",c:"#ff3333",b:"rgba(255,51,51,.3)",t:"❌ หมดแล้ว"}};
+      const m=map[s]||map.ok;
+      return <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m.bg,color:m.c,border:`1px solid ${m.b}`,whiteSpace:"nowrap"}}>{m.t}</span>;
+    }
+
+    function ReportTab({reportDate,setReportDate,todaySales,todayIn,todayRev,transactions,products,warranties,exportAll}) {
+      const last7=Array.from({length:7},(_,i)=>{
+        const d=new Date(); d.setDate(d.getDate()-(6-i));
+        const ds=d.toISOString().slice(0,10);
+        const rev=transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0);
+        return {ds,rev,label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})};
+      });
+      const maxRev=Math.max(...last7.map(d=>d.rev),1);
+      const expW=warranties.filter(w=>wStatus(w)==="exp");
+      const warnW=warranties.filter(w=>wStatus(w)==="warn");
+      return (
+        <div style={{paddingTop:14}}>
+          <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)}
+            style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:12}}/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-            <Stat icon="💰" label="รายได้"      val={`฿${fmt(todayRev)}`}        color="#ff6b00" sm/>
-            <Stat icon="🛒" label="รายการขาย"  val={`${todaySales.length}`}       color="#00aaff" sm/>
-            <Stat icon="📥" label="รับสินค้า"  val={`${todayIn.length}`}          color="#00cc66" sm/>
+            <Stat icon="💰" label="รายได้"   val={`฿${fmt(todayRev)}`}        color="#ff6b00" sm/>
+            <Stat icon="🛒" label="ขาย"      val={`${todaySales.length}`}       color="#00aaff" sm/>
+            <Stat icon="📥" label="รับสินค้า" val={`${todayIn.length}`}          color="#00cc66" sm/>
           </div>
 
           <SecTitle>ยอดขาย 7 วันย้อนหลัง</SecTitle>
@@ -457,136 +634,77 @@
             </div>
           </div>
 
-          <SecTitle>สินค้าขายดี (รวมทุกวัน)</SecTitle>
-          {topList.map(([name,qty],i)=>(
-            <div key={name} style={{background:"#161616",border:"1px solid #2a2a2a",borderRadius:10,padding:"9px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:16,fontWeight:800,color:"#ff6b00",minWidth:20}}>#{i+1}</span>
-                <span style={{fontSize:13}}>{name}</span>
-              </div>
-              <span style={{fontSize:13,fontWeight:700,color:"#00cc66"}}>{qty} ชิ้น</span>
-            </div>
-          ))}
+          <SecTitle>สรุปประกัน</SecTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+            <Stat icon="🛡️" label="ทั้งหมด"  val={`${warranties.length}`}    color="#00aaff" sm/>
+            <Stat icon="⚠️" label="ใกล้หมด"  val={`${warnW.length}`}         color="#ffcc00" sm/>
+            <Stat icon="❌" label="หมดแล้ว"   val={`${expW.length}`}          color="#ff3333" sm/>
+          </div>
 
           <SecTitle>รายการขาย — {thDate(reportDate)}</SecTitle>
           {todaySales.map(t=><TxRow key={t.id} tx={t}/>)}
           {todaySales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
 
           <div style={{marginTop:16}}>
-            <button onClick={exportExcel} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc66",background:"#001a0a",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-              📊 Export Excel ทั้งหมด (.xlsx)
+            <button onClick={exportAll} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📊 Export Excel ทั้งหมด (สต๊อก + ขาย + ประกัน)
             </button>
           </div>
         </div>
       );
     }
 
-    function SettingsTab({products,setModal,exportExcel,transactions,shopName}) {
-      const totalVal = products.reduce((s,p)=>s+p.stock*p.price,0);
-      const cats = [...new Set(products.map(p=>p.category))];
-      const handleReset = () => {
-        if (!window.confirm("⚠️ ล้างข้อมูลทั้งหมดและเริ่มใหม่?\n(ไม่สามารถกู้คืนได้)")) return;
-        localStorage.removeItem("benz_products");
-        localStorage.removeItem("benz_transactions");
-        window.location.reload();
-      };
-      return (
-        <div style={{paddingTop:14}}>
-          <SecTitle>ข้อมูลร้าน</SecTitle>
-          <div style={{background:"linear-gradient(135deg,#1a0800,#2a1000)",border:"1px solid #ff6b0033",borderRadius:12,padding:16,marginBottom:14}}>
-            <div style={{fontSize:18,fontWeight:800,color:"#ff6b00"}}>{shopName}</div>
-            <div style={{fontSize:11,color:"#555",marginBottom:10}}>ระบบจัดการสต๊อกสินค้า v2.0</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
-              <div style={{color:"#888"}}>สินค้า: <strong style={{color:"#fff"}}>{products.length} รายการ</strong></div>
-              <div style={{color:"#888"}}>หมวดหมู่: <strong style={{color:"#fff"}}>{cats.length} หมวด</strong></div>
-              <div style={{color:"#888"}}>รายการ Tx: <strong style={{color:"#fff"}}>{transactions.length} รายการ</strong></div>
-              <div style={{color:"#888"}}>มูลค่าสต๊อก: <strong style={{color:"#ff9500"}}>฿{fmt(totalVal)}</strong></div>
-            </div>
-          </div>
-
-          <SecTitle>จัดการสินค้า</SecTitle>
-          <OBtn onClick={()=>setModal("addProduct")}>➕ เพิ่มสินค้าใหม่</OBtn>
-
-          <div style={{marginTop:12}}>
-            <button onClick={exportExcel} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc66",background:"#001a0a",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:8}}>
-              📊 Export Excel (.xlsx)
-            </button>
-          </div>
-
-          <SecTitle style={{marginTop:16}}>หมวดหมู่สินค้า</SecTitle>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
-            {cats.map(c=>(
-              <div key={c} style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:8,padding:"5px 10px",fontSize:12,color:"#aaa"}}>{c} ({products.filter(p=>p.category===c).length})</div>
-            ))}
-          </div>
-
-          <SecTitle>ข้อมูลอยู่ในเครื่อง</SecTitle>
-          <div style={{background:"#111",border:"1px solid #1a3a1a",borderRadius:10,padding:12,fontSize:12,color:"#666",marginBottom:12}}>
-            ✅ ข้อมูลถูกบันทึกอัตโนมัติในเบราว์เซอร์นี้ — ไม่หายเมื่อปิดแท็บ
-          </div>
-
-          <button onClick={handleReset} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-            ⚠️ รีเซ็ตข้อมูลทั้งหมด
-          </button>
-        </div>
-      );
-    }
-
-    /* ═══ SHARED UI ══════════════════════════════════════════════ */
+    /* ═══ SHARED UI ═══════════════════════════════════════════════ */
     function Modal({title,children,onClose}) {
-      return (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-          <div style={{background:"#111",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"85vh",overflowY:"auto",border:"1px solid #2a2a2a"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:700}}>{title}</div>
-              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>{children}</div>
+      return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+        <div style={{background:"#111",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",border:"1px solid #2a2a2a"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:15,fontWeight:700}}>{title}</div>
+            <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
           </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>{children}</div>
         </div>
-      );
+      </div>;
     }
     function Inp({label,value,onChange,type="text",placeholder=""}) {
-      return (<div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/></div>);
+      return <div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/></div>;
     }
     function Sel({label,value,onChange,children}) {
-      return (<div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}>{children}</select></div>);
+      return <div><label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label><select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}>{children}</select></div>;
     }
     function OBtn({onClick,children}) {
-      return (<button onClick={onClick} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700,boxShadow:"0 4px 15px rgba(255,107,0,.35)"}}>{children}</button>);
+      return <button onClick={onClick} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700,boxShadow:"0 4px 15px rgba(255,107,0,.35)"}}>{children}</button>;
     }
     function Stat({icon,label,val,color,sm}) {
-      return (
-        <div style={{background:"#161616",border:`1px solid ${color}33`,borderRadius:12,padding:sm?"10px":"13px",borderLeft:`3px solid ${color}`}}>
-          <div style={{fontSize:sm?15:20,marginBottom:3}}>{icon}</div>
-          <div style={{fontSize:sm?13:17,fontWeight:800,color}}>{val}</div>
-          <div style={{fontSize:sm?9:10,color:"#555"}}>{label}</div>
-        </div>
-      );
+      return <div style={{background:"#161616",border:`1px solid ${color}33`,borderRadius:12,padding:sm?"10px":"13px",borderLeft:`3px solid ${color}`}}>
+        <div style={{fontSize:sm?15:20,marginBottom:3}}>{icon}</div>
+        <div style={{fontSize:sm?13:17,fontWeight:800,color}}>{val}</div>
+        <div style={{fontSize:sm?9:10,color:"#555"}}>{label}</div>
+      </div>;
     }
     function ABtn({icon,label,color,onClick}) {
-      return (<button onClick={onClick} style={{flex:1,padding:"13px 8px",borderRadius:12,border:`1px solid ${color}33`,background:`${color}11`,color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span></button>);
+      return <button onClick={onClick} style={{flex:1,padding:"13px 8px",borderRadius:12,border:`1px solid ${color}33`,background:`${color}11`,color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+        <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span>
+      </button>;
     }
     function TxRow({tx,onPrint}) {
-      const isOut = tx.type==="out";
-      return (
-        <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
-          <div style={{display:"flex",gap:9,alignItems:"center",flex:1}}>
-            <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</div>
-              <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
-              <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
-            </div>
-            {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
+      const isOut=tx.type==="out";
+      return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
+        <div style={{display:"flex",gap:9,alignItems:"center",flex:1}}>
+          <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</div>
+            <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
           </div>
         </div>
-      );
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
+            <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
+          </div>
+          {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
+        </div>
+      </div>;
     }
     function SecTitle({children}) {
       return <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",marginBottom:8,marginTop:4,letterSpacing:1,textTransform:"uppercase"}}>{children}</div>;
@@ -595,7 +713,6 @@
       return <div style={{color:"#333",fontSize:13,textAlign:"center",padding:"24px 0"}}>{msg}</div>;
     }
 
-    /* RENDER */
     ReactDOM.createRoot(document.getElementById("app-root")).render(<App/>);
   </script>
 </body>
