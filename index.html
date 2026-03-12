@@ -1140,6 +1140,81 @@
 
       const allLoaded = prodLoaded && txLoaded && wLoaded && usersLoaded;
 
+      // ═══════════════════════════════════════════════════════
+      // Migrate localStorage data to Firestore (first time only)
+      // ═══════════════════════════════════════════════════════
+      useEffect(() => {
+        if (!allLoaded || !_db) return;
+        
+        // Check if migration already done
+        const migrationDone = localStorage.getItem("benz_migrated_to_firestore");
+        if (migrationDone) return;
+        
+        const migrateData = async () => {
+          try {
+            // Check if Firestore has data
+            const prodSnap = await _db.collection("products").limit(1).get();
+            if (!prodSnap.empty) {
+              // Firestore already has data, skip migration
+              localStorage.setItem("benz_migrated_to_firestore", "true");
+              return;
+            }
+            
+            // Migrate products from localStorage to Firestore
+            const lsProducts = localStorage.getItem("benz_products");
+            if (lsProducts) {
+              const prods = JSON.parse(lsProducts);
+              if (Array.isArray(prods) && prods.length > 0) {
+                const batch = _db.batch();
+                prods.forEach(p => {
+                  const docRef = _db.collection("products").doc(String(p.id));
+                  batch.set(docRef, { _v: p });
+                });
+                await batch.commit();
+                console.log("✅ Migrated", prods.length, "products to Firestore");
+              }
+            }
+            
+            // Migrate transactions
+            const lsTxs = localStorage.getItem("benz_transactions");
+            if (lsTxs) {
+              const txs = JSON.parse(lsTxs);
+              if (Array.isArray(txs) && txs.length > 0) {
+                const batch = _db.batch();
+                txs.forEach(t => {
+                  const docRef = _db.collection("transactions").doc(String(t.id));
+                  batch.set(docRef, { _v: t });
+                });
+                await batch.commit();
+                console.log("✅ Migrated", txs.length, "transactions to Firestore");
+              }
+            }
+            
+            // Migrate warranties
+            const lsWarranties = localStorage.getItem("benz_warranties");
+            if (lsWarranties) {
+              const ws = JSON.parse(lsWarranties);
+              if (Array.isArray(ws) && ws.length > 0) {
+                const batch = _db.batch();
+                ws.forEach(w => {
+                  const docRef = _db.collection("warranties").doc(String(w.id));
+                  batch.set(docRef, { _v: w });
+                });
+                await batch.commit();
+                console.log("✅ Migrated", ws.length, "warranties to Firestore");
+              }
+            }
+            
+            localStorage.setItem("benz_migrated_to_firestore", "true");
+            console.log("✅ Data migration complete!");
+          } catch (err) {
+            console.error("Migration error:", err);
+          }
+        };
+        
+        migrateData();
+      }, [allLoaded]);
+
       // Loading screen
       if (!allLoaded) return (
         <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#0d0d0d",gap:16}}>
