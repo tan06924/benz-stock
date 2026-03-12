@@ -256,16 +256,26 @@
     const usePersist = useFirestore;
 
     /* ─── PRINT ─────────────────────────────────────────────────── */
-    function printReceipt(tx,shopName="BENZ ประดับยนต์") {
+    function printReceipt(tx, cfg={}) {
+      const sName = cfg.name || "BENZ ประดับยนต์";
+      const rcpNo = `${cfg.receiptPrefix||"RCP"}-${String(tx.id).slice(-6)}`;
+      const vatRate = cfg.vatRate ?? 7;
+      const vatAmt  = vatRate > 0 ? Math.round((tx.total * vatRate / (100+vatRate)) * 100)/100 : 0;
+      const beforeVat = vatRate > 0 ? tx.total - vatAmt : tx.total;
       document.getElementById("print-zone").innerHTML=`
-        <div style="text-align:center;font-size:16pt;font-weight:800">${shopName}</div>
+        <div style="text-align:center;font-size:16pt;font-weight:800">${sName}</div>
+        ${cfg.address?`<div style="text-align:center;font-size:9pt;color:#555">${cfg.address}</div>`:""}
+        ${cfg.phone?`<div style="text-align:center;font-size:9pt;color:#555">โทร: ${cfg.phone}</div>`:""}
         <div style="text-align:center;font-size:9pt;color:#555">ใบเสร็จรับเงิน</div><hr class="pr-hr"/>
-        <div class="pr"><span>เลขที่:</span><span>RCP-${Date.now().toString().slice(-6)}</span></div>
+        <div class="pr"><span>เลขที่:</span><span>${rcpNo}</span></div>
         <div class="pr"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div><hr class="pr-hr"/>
         <div class="pr"><span>${tx.productName}</span></div>
         <div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
+        ${vatRate>0?`<div class="pr" style="color:#555;font-size:9pt"><span>ราคาก่อน VAT</span><span>฿${fmt(beforeVat)}</span></div>
+        <div class="pr" style="color:#555;font-size:9pt"><span>VAT ${vatRate}%</span><span>฿${fmt(vatAmt)}</span></div><hr class="pr-hr"/>`:""}
         <div class="pr" style="font-size:13pt;font-weight:800"><span>รวม</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
-        <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
+        ${cfg.taxId?`<div style="text-align:center;font-size:8pt;color:#888">เลขผู้เสียภาษี: ${cfg.taxId}</div>`:""}
+        <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${sName}</div>`;
       setTimeout(()=>window.print(),200);
     }
     function printWarrantyDoc(w,shopName="BENZ ประดับยนต์") {
@@ -1089,6 +1099,10 @@
       const [transactions,setTxs,txLoaded]        = useCollection("transactions", []);
       const [warranties,setWarranties,wLoaded]    = useCollection("warranties",   []);
       const [shopName]                            = useFirestore("shopname",     "BENZ ประดับยนต์");
+      const [shopConfig, setShopConfig]           = useFirestore("shopconfig",   {
+        name:"BENZ ประดับยนต์", address:"", phone:"", taxId:"", vatRate:7,
+        receiptPrefix:"RCP", taxPrefix:"TAX"
+      });
       const [modal,setModal]                      = useState(null);
       const [form,setForm]                        = useState({});
       const [editP,setEditP]                      = useState(null);
@@ -1104,6 +1118,8 @@
       const [showUsers,setShowUsers]              = useState(false);
       const [showBackup,setShowBackup]            = useState(false);
       const [showBarcode,setShowBarcode]          = useState(false);
+      const [showShopConfig,setShowShopConfig]    = useState(false);
+      const [taxInvoiceTx,setTaxInvoiceTx]        = useState(null);
 
       const [online, setOnline] = useState(navigator.onLine);
       useEffect(()=>{
@@ -1227,7 +1243,9 @@
           {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
           {showUsers&&<UserManagement users={users} setUsers={setUsers} currentUser={cu} onClose={()=>setShowUsers(false)}/>}
           {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={()=>doBackup({products,transactions,warranties,users})} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
-          {showBarcode&&<BarcodeModal products={products} shopName={shopName} onClose={()=>setShowBarcode(false)}/>}
+          {showBarcode&&<BarcodeModal products={products} shopName={shopConfig.name||shopName} onClose={()=>setShowBarcode(false)}/>}
+          {showShopConfig&&<ShopConfigModal config={shopConfig} setConfig={setShopConfig} onClose={()=>setShowShopConfig(false)} toast_={toast_}/>}
+          {taxInvoiceTx&&<TaxInvoiceModal tx={taxInvoiceTx} config={shopConfig} onClose={()=>setTaxInvoiceTx(null)}/>}
 
           {/* HEADER */}
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
@@ -1236,6 +1254,7 @@
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:9,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
                 {cu.role==="admin"&&<button onClick={()=>setShowUsers(true)} title="จัดการผู้ใช้" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙️</button>}
+                {cu.role==="admin"&&<button onClick={()=>setShowShopConfig(true)} title="ตั้งค่าร้าน/ภาษี" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🏪</button>}
                 <button onClick={logout} title="ออกจากระบบ" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
               </div>
             </div>
@@ -1252,7 +1271,7 @@
           <div style={{padding:"0 16px"}}>
             {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
             {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
-            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopName)} setScanner={setScanner}/>}
+            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
             {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
           </div>
@@ -1435,7 +1454,7 @@
       );
     }
 
-    function TxTab({transactions,setModal,printRcp,setScanner}) {
+    function TxTab({transactions,setModal,printRcp,setScanner,setTaxInvoiceTx}) {
       const [filter,setFilter]=useState("all");
       const list=filter==="all"?transactions:transactions.filter(t=>t.type===filter);
       return (
@@ -1455,7 +1474,7 @@
               <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนขาย</span>
             </button>
           </div>
-          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null}/>)}
+          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null} onTax={t.type==="out"?()=>setTaxInvoiceTx(t):null}/>)}
           {list.length===0&&<Empty msg="ไม่มีรายการ"/>}
         </div>
       );
@@ -1677,7 +1696,7 @@
         <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span>
       </button>;
     }
-    function TxRow({tx,onPrint}) {
+    function TxRow({tx,onPrint,onTax}) {
       const isOut=tx.type==="out";
       return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
         <div style={{display:"flex",gap:9,alignItems:"center",flex:1}}>
@@ -1694,6 +1713,7 @@
             <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
           </div>
           {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
+          {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄 ภาษี</button>}
         </div>
       </div>;
     }
@@ -1704,7 +1724,251 @@
       return <div style={{color:"#333",fontSize:13,textAlign:"center",padding:"24px 0"}}>{msg}</div>;
     }
 
-    ReactDOM.createRoot(document.getElementById("app-root")).render(<App/>);
+    /* ══════════════════════════════════════════════════════════════
+       SHOP CONFIG MODAL — ตั้งค่าร้าน / ภาษี
+    ══════════════════════════════════════════════════════════════ */
+    function ShopConfigModal({config, setConfig, onClose, toast_}) {
+      const [f, setF] = useState({...config});
+      const save = () => {
+        if (!f.name) return;
+        setConfig(f);
+        toast_("✅ บันทึกข้อมูลร้านเรียบร้อย");
+        onClose();
+      };
+      const inp = (label, key, placeholder, type="text") => (
+        <div>
+          <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>{label}</label>
+          <input type={type} value={f[key]||""} onChange={e=>setF(p=>({...p,[key]:e.target.value}))} placeholder={placeholder}
+            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+        </div>
+      );
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+          <div style={{background:"#111",borderRadius:"18px 18px 0 0",width:"100%",maxWidth:440,padding:20,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:800}}>🏪 ตั้งค่าร้าน / ออกใบกำกับภาษี</div>
+              <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:20,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",letterSpacing:1}}>ข้อมูลร้านค้า</div>
+              {inp("ชื่อร้าน *","name","BENZ ประดับยนต์")}
+              {inp("ที่อยู่","address","ที่อยู่ร้าน...")}
+              {inp("เบอร์โทร","phone","0XX-XXX-XXXX")}
+              <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",letterSpacing:1,marginTop:4}}>ข้อมูลภาษี</div>
+              {inp("เลขประจำตัวผู้เสียภาษี (13 หลัก)","taxId","X-XXXX-XXXXX-XX-X")}
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>อัตราภาษีมูลค่าเพิ่ม (%)</label>
+                <select value={f.vatRate||7} onChange={e=>setF(p=>({...p,vatRate:Number(e.target.value)}))}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}>
+                  <option value={0}>0% (ไม่มี VAT)</option>
+                  <option value={7}>7% (ปกติ)</option>
+                </select>
+              </div>
+              <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",letterSpacing:1,marginTop:4}}>เลขที่เอกสาร</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div>
+                  <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>Prefix ใบเสร็จ</label>
+                  <input value={f.receiptPrefix||"RCP"} onChange={e=>setF(p=>({...p,receiptPrefix:e.target.value}))}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>Prefix ใบกำกับภาษี</label>
+                  <input value={f.taxPrefix||"TAX"} onChange={e=>setF(p=>({...p,taxPrefix:e.target.value}))}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                </div>
+              </div>
+              <button onClick={save} style={{width:"100%",padding:13,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700,marginTop:4}}>
+                ✅ บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       TAX INVOICE MODAL — ใบกำกับภาษีอย่างย่อ / เต็มรูปแบบ
+    ══════════════════════════════════════════════════════════════ */
+    function TaxInvoiceModal({tx, config, onClose}) {
+      const [buyerName,  setBuyerName]  = useState("");
+      const [buyerAddr,  setBuyerAddr]  = useState("");
+      const [buyerTax,   setBuyerTax]   = useState("");
+      const [docType,    setDocType]    = useState("full"); // full | abbr
+      const [discount,   setDiscount]   = useState(0);
+      const docNo = `${config.taxPrefix||"TAX"}-${String(tx.id).slice(-6)}`;
+      const rcpNo = `${config.receiptPrefix||"RCP"}-${String(tx.id).slice(-6)}`;
+
+      const vatRate  = config.vatRate ?? 7;
+      const disc     = parseFloat(discount)||0;
+      const subTotal = tx.total - disc;
+      const vatAmt   = vatRate>0 ? Math.round((subTotal * vatRate/100) * 100)/100 : 0;
+      const beforeVat= vatRate>0 ? Math.round((subTotal / (1 + vatRate/100)) * 100)/100 : subTotal;
+      const grandTotal = subTotal;
+
+      const doPrint = () => {
+        const isAbbr = docType === "abbr";
+        const vatLine = vatRate > 0
+          ? `<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ราคาก่อนภาษี</td><td style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">฿${fmt(beforeVat)}</td></tr>
+             <tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ภาษีมูลค่าเพิ่ม ${vatRate}%</td><td style="text-align:right;padding:3px 8px;color:#ff6b00;font-size:9pt">฿${fmt(vatAmt)}</td></tr>`
+          : "";
+        const discLine = disc > 0
+          ? `<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ส่วนลด</td><td style="text-align:right;padding:3px 8px;color:#ff3333;font-size:9pt">-฿${fmt(disc)}</td></tr>`
+          : "";
+        document.getElementById("print-zone").innerHTML = `
+          <style>
+            @media print { body * { visibility:hidden; } #print-zone,#print-zone * { visibility:visible; } #print-zone { position:absolute;left:0;top:0;width:100%; } }
+            #print-zone { font-family:'Sarabun',sans-serif; max-width:210mm; margin:0 auto; }
+            .inv-table { width:100%; border-collapse:collapse; font-size:10pt; }
+            .inv-table th { background:#f5f5f5; padding:6px 8px; text-align:left; font-size:10pt; }
+            .inv-table td { padding:5px 8px; border-bottom:1px solid #eee; font-size:10pt; }
+          </style>
+          <div style="border:2px solid #000;padding:16px 20px;font-size:10pt;line-height:1.5">
+            <!-- Header -->
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+              <div>
+                <div style="font-size:16pt;font-weight:800">${config.name||"ร้านค้า"}</div>
+                ${config.address?`<div style="font-size:9pt;color:#555">${config.address}</div>`:""}
+                ${config.phone?`<div style="font-size:9pt;color:#555">โทร: ${config.phone}</div>`:""}
+                ${config.taxId?`<div style="font-size:9pt">เลขประจำตัวผู้เสียภาษี: <strong>${config.taxId}</strong></div>`:""}
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:14pt;font-weight:800;color:#c00">${isAbbr?"ใบกำกับภาษีอย่างย่อ":"ใบกำกับภาษี / ใบเสร็จรับเงิน"}</div>
+                <div style="font-size:9pt">เลขที่: <strong>${docNo}</strong></div>
+                <div style="font-size:9pt">วันที่: <strong>${thDate(tx.date)} ${tx.time||""}</strong></div>
+              </div>
+            </div>
+            <hr style="border:1px solid #000;margin:8px 0"/>
+            <!-- Buyer (full only) -->
+            ${!isAbbr && (buyerName||buyerAddr||buyerTax) ? `
+            <div style="margin-bottom:10px">
+              <div style="font-size:9pt;font-weight:700">ข้อมูลผู้ซื้อ</div>
+              ${buyerName?`<div style="font-size:9pt">ชื่อ: ${buyerName}</div>`:""}
+              ${buyerAddr?`<div style="font-size:9pt">ที่อยู่: ${buyerAddr}</div>`:""}
+              ${buyerTax?`<div style="font-size:9pt">เลขประจำตัวผู้เสียภาษี: ${buyerTax}</div>`:""}
+            </div>
+            <hr style="border:1px solid #ccc;margin:8px 0"/>` : ""}
+            <!-- Items table -->
+            <table class="inv-table">
+              <thead>
+                <tr>
+                  <th style="width:36px">ลำดับ</th>
+                  <th>รายการ</th>
+                  <th style="text-align:right;width:80px">จำนวน</th>
+                  <th style="text-align:right;width:90px">ราคา/หน่วย</th>
+                  <th style="text-align:right;width:90px">รวม</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td>${tx.productName}</td>
+                  <td style="text-align:right">${tx.qty}</td>
+                  <td style="text-align:right">฿${fmt(tx.price)}</td>
+                  <td style="text-align:right">฿${fmt(tx.qty*tx.price)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <!-- Totals -->
+            <table style="width:100%;margin-top:8px">
+              ${discLine}
+              ${vatLine}
+              <tr style="border-top:2px solid #000">
+                <td colspan="3" style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">รวมทั้งสิ้น</td>
+                <td style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">฿${fmt(grandTotal)}</td>
+              </tr>
+            </table>
+            <hr style="border:1px solid #ccc;margin:8px 0"/>
+            <!-- Footer -->
+            <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:9pt">
+              <div style="text-align:center">
+                <div style="height:40px"></div>
+                <div>……………………………………</div>
+                <div>ผู้รับเงิน / ผู้ขาย</div>
+              </div>
+              <div style="text-align:center">
+                <div style="height:40px"></div>
+                <div>……………………………………</div>
+                <div>ผู้ชำระเงิน / ผู้ซื้อ</div>
+              </div>
+            </div>
+            <div style="text-align:center;font-size:8pt;color:#888;margin-top:8px">เอกสารนี้ออกโดยระบบคอมพิวเตอร์ ขอบคุณที่ใช้บริการ</div>
+          </div>`;
+        setTimeout(()=>window.print(),200);
+      };
+
+      const fieldStyle = {width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13};
+
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+          <div style={{background:"#111",borderRadius:"18px 18px 0 0",width:"100%",maxWidth:440,padding:20,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:16,fontWeight:800}}>📄 ออกใบกำกับภาษี</div>
+              <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:20,cursor:"pointer"}}>✕</button>
+            </div>
+
+            {/* ประเภทเอกสาร */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+              {[["full","📋 ใบกำกับภาษีเต็มรูปแบบ"],["abbr","🧾 ใบกำกับภาษีอย่างย่อ"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setDocType(v)}
+                  style={{padding:"10px 8px",borderRadius:10,border:`2px solid ${docType===v?"#ff9500":"#2a2a2a"}`,background:docType===v?"rgba(255,149,0,.1)":"#161616",cursor:"pointer",color:docType===v?"#ff9500":"#555",fontSize:12,fontWeight:700}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            {/* สรุปรายการ */}
+            <div style={{background:"#1a0a00",borderRadius:10,padding:12,marginBottom:14,border:"1px solid #ff6b0033"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:13,color:"#aaa"}}>{tx.productName}</span>
+                <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>฿{fmt(tx.total)}</span>
+              </div>
+              <div style={{fontSize:11,color:"#555"}}>{tx.qty} x ฿{fmt(tx.price)}</div>
+              {vatRate>0&&<div style={{fontSize:11,color:"#ff9500",marginTop:4}}>รวม VAT {vatRate}% = ฿{fmt(vatAmt)}</div>}
+            </div>
+
+            {/* ส่วนลด */}
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ส่วนลด (บาท)</label>
+              <input type="number" min="0" value={discount} onChange={e=>setDiscount(e.target.value)} placeholder="0"
+                style={fieldStyle}/>
+            </div>
+
+            {/* ข้อมูลผู้ซื้อ (เฉพาะเต็มรูปแบบ) */}
+            {docType==="full"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",letterSpacing:1}}>ข้อมูลผู้ซื้อ (ถ้ามี)</div>
+                <div>
+                  <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ชื่อ / บริษัท</label>
+                  <input value={buyerName} onChange={e=>setBuyerName(e.target.value)} placeholder="ชื่อลูกค้า หรือ บริษัท..." style={fieldStyle}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ที่อยู่</label>
+                  <input value={buyerAddr} onChange={e=>setBuyerAddr(e.target.value)} placeholder="ที่อยู่สำหรับออกใบกำกับ..." style={fieldStyle}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>เลขประจำตัวผู้เสียภาษี</label>
+                  <input value={buyerTax} onChange={e=>setBuyerTax(e.target.value)} placeholder="X-XXXX-XXXXX-XX-X" style={fieldStyle}/>
+                </div>
+              </div>
+            )}
+
+            {/* Warning ถ้าไม่มี taxId ร้าน */}
+            {!config.taxId&&(
+              <div style={{background:"rgba(255,150,0,.1)",border:"1px solid #ff950044",borderRadius:8,padding:"8px 10px",fontSize:11,color:"#ff9500",marginBottom:12}}>
+                ⚠️ ยังไม่ได้กรอกเลขผู้เสียภาษีของร้าน — กด 🏪 ที่ Header เพื่อตั้งค่า
+              </div>
+            )}
+
+            <button onClick={doPrint}
+              style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:15,fontWeight:800,boxShadow:"0 4px 15px rgba(255,107,0,.4)"}}>
+              🖨️ พิมพ์ใบกำกับภาษี
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    
   </script>
 </body>
 </html>
