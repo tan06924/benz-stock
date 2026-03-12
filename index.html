@@ -905,9 +905,22 @@
         setScanner(null);
         const p=products.find(x=>x.code.toLowerCase()===code.toLowerCase()||String(x.id)===code);
         if(p){
-          if(scanner==="in"||scanner==="out"){ setForm(f=>({...f,productId:String(p.id)})); setScanRes({ok:true,p}); toast_(`✅ พบ: ${p.name}`); }
-          else{ setSearchQ(p.code); toast_(`✅ พบ: ${p.name}`); }
-        } else { setScanRes({ok:false,code}); toast_(`⚠️ ไม่พบรหัส: ${code}`,"err"); }
+          if(scanner==="in"||scanner==="out"){
+            // เปิด modal พร้อมเลือกสินค้าทันที
+            setForm(f=>({...f, productId:String(p.id), qty:"1"}));
+            setScanRes({ok:true,p});
+            setModal(scanner); // เปิด modal ขาย/รับ ทันที
+            toast_(`✅ พบ: ${p.name}`);
+          } else {
+            setSearchQ(p.code);
+            toast_(`✅ พบ: ${p.name}`);
+          }
+        } else {
+          setScanRes({ok:false,code});
+          toast_(`⚠️ ไม่พบรหัส: ${code}`,"err");
+          // ถ้า scan จาก modal ที่เปิดอยู่แล้ว ให้คง modal ไว้
+          if(scanner==="in"||scanner==="out") setModal(scanner);
+        }
       };
 
       /* TX */
