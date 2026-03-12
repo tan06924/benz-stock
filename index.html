@@ -12,6 +12,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
@@ -26,10 +27,19 @@
     #print-zone { width: 80mm; font-family: 'Sarabun', sans-serif; font-size: 11pt; color: #000; padding: 5mm; background: #fff; }
     .pr { display: flex; justify-content: space-between; font-size: 10pt; margin: 2px 0; }
     .pr-hr { border: none; border-top: 1px dashed #000; margin: 5px 0; }
-
-    /* WARRANTY CARD PROGRESS */
     .prog-bar { height: 4px; background: #222; border-radius: 4px; overflow: hidden; margin-top: 4px; }
     .prog-fill { height: 100%; border-radius: 4px; }
+    #barcode-reader video { width: 100% !important; border-radius: 10px; }
+    #barcode-reader { width: 100% !important; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);} }
+    .login-box { animation: fadeIn .4s ease; }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 18px rgba(255,107,0,.5);}50%{box-shadow:0 0 30px rgba(255,107,0,.9);} }
+    .logo-pulse { animation: pulse 2s infinite; }
+    @keyframes spin { to{transform:rotate(360deg);} }
+    .spin { animation: spin .8s linear infinite; display:inline-block; }
+    .irow-ok  { background:rgba(0,204,102,.06);  border-left:3px solid #00cc66; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
+    .irow-upd { background:rgba(0,170,255,.06);  border-left:3px solid #00aaff; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
+    .irow-err { background:rgba(255,51,51,.06);  border-left:3px solid #ff3333; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
   </style>
 </head>
 <body>
@@ -37,9 +47,9 @@
   <div id="print-zone"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useRef } = React;
 
-    /* ─── DEFAULTS ─────────────────────────────────────────────── */
+    /* ─── DEFAULT DATA ──────────────────────────────────────────── */
     const DEF_PRODUCTS = [
       { id:1, code:"BZ001", name:"ฟิล์มกรองแสง 3M ดำ",     category:"ฟิล์ม",  stock:12, price:3500, unit:"ม้วน",    minStock:5 },
       { id:2, code:"BZ002", name:"ฟิล์มกรองแสง Llumar",     category:"ฟิล์ม",  stock:3,  price:4200, unit:"ม้วน",    minStock:5 },
@@ -51,11 +61,11 @@
       { id:8, code:"BZ008", name:"กล้อง 360 Samsung",       category:"กล้อง",  stock:2,  price:5500, unit:"เครื่อง", minStock:5 },
     ];
     const DEF_TX = [
-      { id:1, date:"2025-03-10", type:"out", productId:1, productName:"ฟิล์มกรองแสง 3M ดำ",    qty:2, price:3500, note:"ขายลูกค้า", total:7000 },
-      { id:2, date:"2025-03-10", type:"out", productId:3, productName:"กล้องติดรถ Viofo A129",  qty:1, price:2900, note:"ขายลูกค้า", total:2900 },
-      { id:3, date:"2025-03-10", type:"in",  productId:4, productName:"พรมปูพื้น 5D Full Set",  qty:5, price:1800, note:"รับของจากซัพพลายเออร์", total:9000 },
-      { id:4, date:"2025-03-11", type:"out", productId:5, productName:"ชุดไฟ LED ภายใน",        qty:3, price:890,  note:"ขายลูกค้า", total:2670 },
-      { id:5, date:"2025-03-11", type:"out", productId:7, productName:"น้ำยาเคลือบแก้ว Ceramic",qty:1, price:1200, note:"ขายลูกค้า", total:1200 },
+      { id:1, date:"2025-03-10", type:"out", productId:1, productName:"ฟิล์มกรองแสง 3M ดำ",     qty:2, price:3500, note:"ขายลูกค้า", total:7000 },
+      { id:2, date:"2025-03-10", type:"out", productId:3, productName:"กล้องติดรถ Viofo A129",   qty:1, price:2900, note:"ขายลูกค้า", total:2900 },
+      { id:3, date:"2025-03-10", type:"in",  productId:4, productName:"พรมปูพื้น 5D Full Set",   qty:5, price:1800, note:"รับของจากซัพพลายเออร์", total:9000 },
+      { id:4, date:"2025-03-11", type:"out", productId:5, productName:"ชุดไฟ LED ภายใน",         qty:3, price:890,  note:"ขายลูกค้า", total:2670 },
+      { id:5, date:"2025-03-11", type:"out", productId:7, productName:"น้ำยาเคลือบแก้ว Ceramic", qty:1, price:1200, note:"ขายลูกค้า", total:1200 },
     ];
     const DEF_WARRANTIES = [
       { id:1, customer:"สมชาย มีสุข",    phone:"081-234-5678", plate:"กข 1234 กทม", product:"ฟิล์มกรองแสง 3M ดำ",    type:"install", saleDate:"2023-03-15", months:60, note:"ติดฟิล์มรอบคัน" },
@@ -64,279 +74,512 @@
       { id:4, customer:"ทวีชัย แสนดี",   phone:"094-555-6666", plate:"พพ 7777 สก",  product:"พรมปูพื้น 5D",           type:"product",  saleDate:"2024-09-05", months:24, note:"5 ชิ้นครบชุด" },
       { id:5, customer:"ประยุทธ์ ดีมาก", phone:"092-111-2222", plate:"ชช 9999 ชม",  product:"น้ำยาเคลือบแก้ว Ceramic",type:"product",  saleDate:"2022-11-10", months:36, note:"เคลือบทั้งคัน" },
     ];
+    const DEF_USERS = [
+      { id:1, username:"admin", password:"1234", role:"admin", name:"ผู้ดูแลระบบ" },
+      { id:2, username:"staff", password:"1234", role:"staff", name:"พนักงาน" },
+    ];
 
     /* ─── UTILS ─────────────────────────────────────────────────── */
-    const fmt    = n => (n||0).toLocaleString("th-TH");
-    const today  = () => new Date().toISOString().slice(0,10);
-    const thDate = d => { if(!d) return "-"; return new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"}); };
-    const nowTs  = () => new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
-    const addMonths = (dateStr, months) => { const d = new Date(dateStr); d.setMonth(d.getMonth()+months); return d.toISOString().slice(0,10); };
-    const daysLeft  = endDate => { const now=new Date(); now.setHours(0,0,0,0); const end=new Date(endDate); end.setHours(0,0,0,0); return Math.ceil((end-now)/86400000); };
-    const wStatus   = w => { const dl=daysLeft(addMonths(w.saleDate,w.months)); if(dl<0) return "exp"; if(dl<=30) return "warn"; return "ok"; };
-    const wPct      = w => { const total=w.months*30; const exp=addMonths(w.saleDate,w.months); const used=total-daysLeft(exp); return Math.min(100,Math.max(0,Math.round((used/total)*100))); };
+    const fmt      = n => (n||0).toLocaleString("th-TH");
+    const today    = () => new Date().toISOString().slice(0,10);
+    const thDate   = d => { if(!d)return "-"; return new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"}); };
+    const nowTs    = () => new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+    const addMonths= (ds,m) => { const d=new Date(ds); d.setMonth(d.getMonth()+m); return d.toISOString().slice(0,10); };
+    const daysLeft = ed => { const n=new Date(); n.setHours(0,0,0,0); const e=new Date(ed); e.setHours(0,0,0,0); return Math.ceil((e-n)/86400000); };
+    const wStatus  = w => { const dl=daysLeft(addMonths(w.saleDate,w.months)); return dl<0?"exp":dl<=30?"warn":"ok"; };
+    const wPct     = w => { const tot=w.months*30; const used=tot-daysLeft(addMonths(w.saleDate,w.months)); return Math.min(100,Math.max(0,Math.round((used/tot)*100))); };
+
+    /* ─── AUTO-CODE GENERATOR ───────────────────────────────────── */
+    const genNextCode = (products, prefix="BZ") => {
+      const nums = products
+        .map(p => p.code)
+        .filter(c => c && c.toUpperCase().startsWith(prefix.toUpperCase()))
+        .map(c => parseInt(c.slice(prefix.length), 10))
+        .filter(n => !isNaN(n));
+      const next = nums.length > 0 ? Math.max(...nums)+1 : 1;
+      return `${prefix}${String(next).padStart(3,"0")}`;
+    };
 
     /* ─── PERSIST HOOK ──────────────────────────────────────────── */
     function usePersist(key, def) {
-      const [val, setVal] = useState(() => {
-        try { const s=localStorage.getItem(key); return s?JSON.parse(s):def; } catch { return def; }
-      });
-      useEffect(() => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} }, [key,val]);
-      return [val, setVal];
+      const [val,setVal] = useState(()=>{ try{const s=localStorage.getItem(key);return s?JSON.parse(s):def;}catch{return def;} });
+      useEffect(()=>{ try{localStorage.setItem(key,JSON.stringify(val));}catch{} },[key,val]);
+      return [val,setVal];
     }
 
-    /* ─── PRINT RECEIPT ─────────────────────────────────────────── */
-    function printReceipt(tx, shopName="BENZ ประดับยนต์") {
-      const z = document.getElementById("print-zone");
-      z.innerHTML = `
+    /* ─── PRINT ─────────────────────────────────────────────────── */
+    function printReceipt(tx,shopName="BENZ ประดับยนต์") {
+      document.getElementById("print-zone").innerHTML=`
         <div style="text-align:center;font-size:16pt;font-weight:800">${shopName}</div>
-        <div style="text-align:center;font-size:9pt;color:#555">ใบเสร็จรับเงิน</div>
-        <hr class="pr-hr"/>
+        <div style="text-align:center;font-size:9pt;color:#555">ใบเสร็จรับเงิน</div><hr class="pr-hr"/>
         <div class="pr"><span>เลขที่:</span><span>RCP-${Date.now().toString().slice(-6)}</span></div>
-        <div class="pr"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div>
-        <hr class="pr-hr"/>
+        <div class="pr"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div><hr class="pr-hr"/>
         <div class="pr"><span>${tx.productName}</span></div>
-        <div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div>
-        <hr class="pr-hr"/>
-        <div class="pr" style="font-size:13pt;font-weight:800"><span>รวม</span><span>฿${fmt(tx.total)}</span></div>
-        <hr class="pr-hr"/>
+        <div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
+        <div class="pr" style="font-size:13pt;font-weight:800"><span>รวม</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
         <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
-      setTimeout(()=>window.print(), 200);
+      setTimeout(()=>window.print(),200);
     }
-
-    /* ─── PRINT WARRANTY ─────────────────────────────────────────── */
-    function printWarranty(w, shopName="BENZ ประดับยนต์") {
-      const exp = addMonths(w.saleDate, w.months);
-      const z = document.getElementById("print-zone");
-      z.innerHTML = `
+    function printWarrantyDoc(w,shopName="BENZ ประดับยนต์") {
+      const exp=addMonths(w.saleDate,w.months);
+      document.getElementById("print-zone").innerHTML=`
         <div style="text-align:center;font-size:16pt;font-weight:800">${shopName}</div>
-        <div style="text-align:center;font-size:9pt;color:#555">ใบรับประกันสินค้า / การติดตั้ง</div>
-        <hr class="pr-hr"/>
+        <div style="text-align:center;font-size:9pt;color:#555">ใบรับประกัน</div><hr class="pr-hr"/>
         <div class="pr"><span>เลขที่:</span><span>WR-${String(w.id).padStart(5,"0")}</span></div>
-        <div class="pr"><span>ประเภท:</span><span>${w.type==="install"?"ประกันการติดตั้ง":"ประกันสินค้า"}</span></div>
-        <hr class="pr-hr"/>
+        <div class="pr"><span>ประเภท:</span><span>${w.type==="install"?"ประกันการติดตั้ง":"ประกันสินค้า"}</span></div><hr class="pr-hr"/>
         <div class="pr"><span>ลูกค้า:</span><span>${w.customer}</span></div>
         <div class="pr"><span>เบอร์โทร:</span><span>${w.phone||"-"}</span></div>
-        <div class="pr"><span>ทะเบียนรถ:</span><span>${w.plate||"-"}</span></div>
-        <hr class="pr-hr"/>
+        <div class="pr"><span>ทะเบียนรถ:</span><span>${w.plate||"-"}</span></div><hr class="pr-hr"/>
         <div class="pr"><span>สินค้า/งาน:</span><span>${w.product}</span></div>
         <div class="pr"><span>วันที่ขาย:</span><span>${thDate(w.saleDate)}</span></div>
         <div class="pr"><span>ระยะประกัน:</span><span>${w.months} เดือน</span></div>
         <div class="pr"><span>วันหมดประกัน:</span><span><strong>${thDate(exp)}</strong></span></div>
         ${w.note?`<div class="pr"><span>หมายเหตุ:</span><span>${w.note}</span></div>`:""}
-        <hr class="pr-hr"/>
-        <div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
-      setTimeout(()=>window.print(), 200);
+        <hr class="pr-hr"/><div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
+      setTimeout(()=>window.print(),200);
     }
 
     /* ─── EXCEL EXPORT ──────────────────────────────────────────── */
-    function exportAll(products, transactions, warranties) {
-      const wb = XLSX.utils.book_new();
-
-      const ws1 = XLSX.utils.json_to_sheet(products.map(p=>({
-        "รหัส":p.code,"ชื่อสินค้า":p.name,"หมวดหมู่":p.category,
-        "สต๊อก":p.stock,"ราคา":p.price,"หน่วย":p.unit,"มูลค่ารวม":p.stock*p.price,
-      })));
-      ws1["!cols"]=[8,30,12,8,10,8,14].map(w=>({wch:w}));
+    function exportAll(products,transactions,warranties) {
+      const wb=XLSX.utils.book_new();
+      // สต๊อก
+      const ws1=XLSX.utils.json_to_sheet(products.map(p=>({"รหัส":p.code,"ชื่อสินค้า":p.name,"หมวดหมู่":p.category,"ราคา":p.price,"สต๊อก":p.stock,"หน่วย":p.unit,"สต๊อกขั้นต่ำ":p.minStock,"มูลค่ารวม":p.stock*p.price})));
+      ws1["!cols"]=[8,30,12,10,8,8,12,12].map(w=>({wch:w}));
       XLSX.utils.book_append_sheet(wb,ws1,"สต๊อกสินค้า");
-
-      const ws2 = XLSX.utils.json_to_sheet(transactions.map(t=>({
-        "วันที่":t.date,"ประเภท":t.type==="out"?"ขาย":"รับเข้า",
-        "สินค้า":t.productName,"จำนวน":t.qty,"ราคา":t.price,"มูลค่า":t.total,"หมายเหตุ":t.note,
-      })));
-      ws2["!cols"]=[12,8,30,8,10,12,20].map(w=>({wch:w}));
+      // การขาย
+      const ws2=XLSX.utils.json_to_sheet(transactions.map(t=>({"วันที่":t.date,"ประเภท":t.type==="out"?"ขาย":"รับเข้า","รหัสสินค้า":products.find(p=>p.id===t.productId)?.code||"","ชื่อสินค้า":t.productName,"จำนวน":t.qty,"ราคา":t.price,"มูลค่า":t.total,"หมายเหตุ":t.note||"","บันทึกโดย":t.createdBy||""})));
+      ws2["!cols"]=[12,8,10,30,8,10,12,20,12].map(w=>({wch:w}));
       XLSX.utils.book_append_sheet(wb,ws2,"การขาย");
-
-      const ws3 = XLSX.utils.json_to_sheet(warranties.map(w=>({
-        "ลูกค้า":w.customer,"เบอร์โทร":w.phone,"ทะเบียน":w.plate,
-        "สินค้า/งาน":w.product,"ประเภท":w.type==="install"?"ติดตั้ง":"สินค้า",
-        "วันที่ขาย":w.saleDate,"ระยะ(เดือน)":w.months,"วันหมดประกัน":addMonths(w.saleDate,w.months),
-        "สถานะ":wStatus(w)==="ok"?"ปกติ":wStatus(w)==="warn"?"ใกล้หมด":"หมดแล้ว",
-        "วันที่เหลือ":daysLeft(addMonths(w.saleDate,w.months)),"หมายเหตุ":w.note,
-      })));
-      ws3["!cols"]=[20,14,14,25,10,12,14,14,10,10,20].map(w=>({wch:w}));
+      // ประกัน
+      const ws3=XLSX.utils.json_to_sheet(warranties.map(w=>({"ลูกค้า":w.customer,"เบอร์โทร":w.phone,"ทะเบียน":w.plate,"สินค้า/งาน":w.product,"ประเภท(install/product)":w.type,"วันที่ขาย":w.saleDate,"ระยะ(เดือน)":w.months,"หมายเหตุ":w.note||"","สถานะ":wStatus(w)==="ok"?"ปกติ":wStatus(w)==="warn"?"ใกล้หมด":"หมดแล้ว","วันหมดประกัน":addMonths(w.saleDate,w.months)})));
+      ws3["!cols"]=[20,14,14,25,16,12,14,20,10,14].map(w=>({wch:w}));
       XLSX.utils.book_append_sheet(wb,ws3,"ประกัน");
-
-      XLSX.writeFile(wb,`BENZ_${today()}.xlsx`);
+      // Template สินค้า
+      const t1=XLSX.utils.aoa_to_sheet([["รหัส","ชื่อสินค้า","หมวดหมู่","ราคา","สต๊อก","หน่วย","สต๊อกขั้นต่ำ"]]);
+      t1["!cols"]=[8,30,12,10,8,8,12].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,t1,"Template_นำเข้าสินค้า");
+      // Template ประกัน
+      const t2=XLSX.utils.aoa_to_sheet([["ลูกค้า","เบอร์โทร","ทะเบียน","สินค้า/งาน","ประเภท(install/product)","วันที่ขาย","ระยะ(เดือน)","หมายเหตุ"]]);
+      t2["!cols"]=[20,14,14,25,16,12,14,20].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,t2,"Template_นำเข้าประกัน");
+      XLSX.writeFile(wb,`BENZ_Export_${today()}.xlsx`);
+    }
+    function exportProductsOnly(products) {
+      const wb=XLSX.utils.book_new();
+      const ws=XLSX.utils.json_to_sheet(products.map(p=>({"รหัส":p.code,"ชื่อสินค้า":p.name,"หมวดหมู่":p.category,"ราคา":p.price,"สต๊อก":p.stock,"หน่วย":p.unit,"สต๊อกขั้นต่ำ":p.minStock})));
+      ws["!cols"]=[8,30,12,10,8,8,12].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,ws,"สต๊อกสินค้า");
+      XLSX.writeFile(wb,`BENZ_สต๊อก_${today()}.xlsx`);
+    }
+    function downloadTemplate(type) {
+      const wb=XLSX.utils.book_new();
+      if(type==="products"){
+        const ws=XLSX.utils.aoa_to_sheet([["รหัส","ชื่อสินค้า","หมวดหมู่","ราคา","สต๊อก","หน่วย","สต๊อกขั้นต่ำ"]]);
+        ws["!cols"]=[8,30,12,10,8,8,12].map(w=>({wch:w}));
+        XLSX.utils.book_append_sheet(wb,ws,"สต๊อกสินค้า");
+        XLSX.writeFile(wb,"Template_นำเข้าสินค้า.xlsx");
+      } else {
+        const ws=XLSX.utils.aoa_to_sheet([["ลูกค้า","เบอร์โทร","ทะเบียน","สินค้า/งาน","ประเภท(install/product)","วันที่ขาย","ระยะ(เดือน)","หมายเหตุ"]]);
+        ws["!cols"]=[20,14,14,25,16,12,14,20].map(w=>({wch:w}));
+        XLSX.utils.book_append_sheet(wb,ws,"ประกัน");
+        XLSX.writeFile(wb,"Template_นำเข้าประกัน.xlsx");
+      }
     }
 
-    /* ═══════════════════════════════════════════════════════════════
-       MAIN APP
-    ═══════════════════════════════════════════════════════════════ */
-    const TABS = ["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","รายงาน"];
-    const ICONS = {"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
+    /* ─── EXCEL IMPORT PARSER ───────────────────────────────────── */
+    function parseXLSX(file) {
+      return new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=e=>{ try{ const wb=XLSX.read(e.target.result,{type:"binary",cellDates:true}); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""})); }catch(err){rej(err);} };
+        r.onerror=()=>rej(new Error("อ่านไฟล์ไม่ได้"));
+        r.readAsBinaryString(file);
+      });
+    }
 
-    function App() {
-      const [tab, setTab]                   = useState("หน้าหลัก");
-      const [products, setProducts]         = usePersist("benz_products",    DEF_PRODUCTS);
-      const [transactions, setTxs]          = usePersist("benz_transactions",DEF_TX);
-      const [warranties, setWarranties]     = usePersist("benz_warranties",  DEF_WARRANTIES);
-      const [shopName]                       = usePersist("benz_shopname",    "BENZ ประดับยนต์");
-      const [modal, setModal]               = useState(null);
-      const [form, setForm]                 = useState({});
-      const [editProduct, setEditProduct]   = useState(null);
-      const [editWarranty, setEditWarranty] = useState(null);
-      const [searchQ, setSearchQ]           = useState("");
-      const [wSearchQ, setWSearchQ]         = useState("");
-      const [reportDate, setReportDate]     = useState(today());
-      const [toast, setToast]               = useState(null);
-      const [lastReceipt, setLastReceipt]   = useState(null);
-      const [wFilter, setWFilter]           = useState("all");
+    /* ══════════════════════════════════════════════════════════════
+       IMPORT MODAL
+    ══════════════════════════════════════════════════════════════ */
+    function ImportModal({onClose,onImportProducts,onImportWarranties,products}) {
+      const [step,setStep]         = useState("select");
+      const [importType,setType]   = useState("products");
+      const [loading,setLoading]   = useState(false);
+      const [preview,setPreview]   = useState([]);
+      const [summary,setSummary]   = useState(null);
+      const fileRef = useRef();
 
-      const showToast = useCallback((msg,type="ok")=>{
-        setToast({msg,type}); setTimeout(()=>setToast(null),2800);
-      },[]);
-      const closeModal = () => { setModal(null); setForm({}); };
-
-      /* ── STOCK TX ── */
-      const submitTx = type => {
-        const product = products.find(p=>p.id===parseInt(form.productId));
-        if (!product) return showToast("กรุณาเลือกสินค้า","err");
-        const qty = parseInt(form.qty);
-        if (!qty||qty<=0) return showToast("กรุณากรอกจำนวน","err");
-        if (type==="out"&&product.stock<qty) return showToast("⚠️ สต๊อกไม่เพียงพอ!","err");
-        const tx = { id:Date.now(), date:form.date||today(), time:nowTs(), type,
-          productId:product.id, productName:product.name, qty,
-          price:product.price, note:form.note||(type==="out"?"ขายลูกค้า":"รับสินค้า"),
-          total:product.price*qty };
-        setTxs(prev=>[tx,...prev]);
-        setProducts(prev=>prev.map(p=>p.id===product.id?{...p,stock:type==="in"?p.stock+qty:p.stock-qty}:p));
-        if(type==="out") setLastReceipt(tx);
-        closeModal(); showToast(type==="in"?`✅ รับสินค้าเข้า +${qty}`:`✅ บันทึกการขาย -${qty}`);
+      const handleFile = async file => {
+        if(!file) return;
+        setLoading(true);
+        try {
+          const rows = await parseXLSX(file);
+          if(importType==="products") {
+            setPreview(rows.map(r=>{
+              const code=String(r["รหัส"]||"").trim(), name=String(r["ชื่อสินค้า"]||"").trim();
+              if(!code||!name) return {_status:"err",_msg:"ไม่มีรหัสหรือชื่อสินค้า"};
+              const ex=products.find(p=>p.code===code);
+              return {_code:code,_name:name,_price:parseFloat(r["ราคา"])||0,_stock:parseInt(r["สต๊อก"])||0,
+                _cat:String(r["หมวดหมู่"]||"ทั่วไป"),_unit:String(r["หน่วย"]||"ชิ้น"),_min:parseInt(r["สต๊อกขั้นต่ำ"])||5,
+                _status:ex?"upd":"ok",_msg:ex?`อัปเดต (สต๊อกเดิม ${ex.stock})`:"เพิ่มใหม่"};
+            }));
+          } else {
+            setPreview(rows.map(r=>{
+              const cust=String(r["ลูกค้า"]||"").trim(),prod=String(r["สินค้า/งาน"]||"").trim(),date=String(r["วันที่ขาย"]||"").trim();
+              if(!cust||!prod||!date) return {_status:"err",_msg:"ข้อมูลไม่ครบ (ต้องมีลูกค้า, สินค้า/งาน, วันที่ขาย)"};
+              const tp=String(r["ประเภท(install/product)"]||"install").trim();
+              return {_cust:cust,_phone:String(r["เบอร์โทร"]||""),_plate:String(r["ทะเบียน"]||""),
+                _prod:prod,_type:tp==="product"?"product":"install",_date:date,
+                _months:parseInt(r["ระยะ(เดือน)"])||12,_note:String(r["หมายเหตุ"]||""),
+                _status:"ok",_msg:"เพิ่มใหม่"};
+            }));
+          }
+          setStep("preview");
+        } catch(e){ alert("อ่านไฟล์ไม่ได้: "+e.message); }
+        setLoading(false);
       };
 
-      /* ── ADD PRODUCT ── */
-      const submitNewProduct = () => {
-        if (!form.name||!form.code||!form.price) return showToast("กรอกข้อมูลให้ครบ","err");
-        if (products.find(p=>p.code===form.code)) return showToast("รหัสสินค้านี้มีอยู่แล้ว","err");
-        setProducts(prev=>[...prev,{ id:Date.now(), code:form.code, name:form.name,
-          category:form.category||"ทั่วไป", stock:parseInt(form.stock)||0,
-          price:parseFloat(form.price)||0, unit:form.unit||"ชิ้น", minStock:5 }]);
-        closeModal(); showToast("✅ เพิ่มสินค้าใหม่สำเร็จ");
-      };
-
-      /* ── EDIT PRODUCT ── */
-      const submitEdit = () => {
-        setProducts(prev=>prev.map(p=>p.id===editProduct.id?{...editProduct}:p));
-        setEditProduct(null); showToast("✅ แก้ไขสินค้าสำเร็จ");
-      };
-      const delProduct = id => {
-        if (!window.confirm("ลบสินค้านี้?")) return;
-        setProducts(prev=>prev.filter(p=>p.id!==id));
-        setEditProduct(null); showToast("🗑️ ลบสินค้าแล้ว");
-      };
-
-      /* ── WARRANTY CRUD ── */
-      const submitWarranty = () => {
-        if (!form.customer||!form.product||!form.saleDate||!form.months)
-          return showToast("กรอกข้อมูลให้ครบก่อนครับ","err");
-        const data = { customer:form.customer, phone:form.phone||"", plate:form.plate||"",
-          product:form.product, type:form.wtype||"install",
-          saleDate:form.saleDate, months:parseInt(form.months)||12, note:form.note||"" };
-        if (form.editId) {
-          setWarranties(prev=>prev.map(w=>w.id===form.editId?{...w,...data}:w));
-          showToast("✅ แก้ไขประกันสำเร็จ");
-        } else {
-          setWarranties(prev=>[{id:Date.now(),...data},...prev]);
-          showToast("✅ เพิ่มรายการประกันสำเร็จ");
-        }
-        closeModal();
-      };
-      const delWarranty = id => {
-        if (!window.confirm("ลบรายการประกันนี้?")) return;
-        setWarranties(prev=>prev.filter(w=>w.id!==id));
-        setModal(null); setForm({}); showToast("🗑️ ลบรายการแล้ว");
-      };
-
-      /* ── COMPUTED ── */
-      const lowStock   = products.filter(p=>p.stock<p.minStock);
-      const warnW      = warranties.filter(w=>wStatus(w)==="warn");
-      const expW       = warranties.filter(w=>wStatus(w)==="exp");
-      const todaySales = transactions.filter(t=>t.date===reportDate&&t.type==="out");
-      const todayIn    = transactions.filter(t=>t.date===reportDate&&t.type==="in");
-      const todayRev   = todaySales.reduce((s,t)=>s+t.total,0);
-      const filtProd   = products.filter(p=>
-        p.name.toLowerCase().includes(searchQ.toLowerCase())||
-        p.code.toLowerCase().includes(searchQ.toLowerCase())||
-        p.category.toLowerCase().includes(searchQ.toLowerCase()));
-      const filtW = warranties
-        .filter(w=>wFilter==="all"||wStatus(w)===wFilter)
-        .filter(w=>!wSearchQ||w.customer.includes(wSearchQ)||w.plate?.includes(wSearchQ)||w.product.includes(wSearchQ)||w.phone?.includes(wSearchQ));
-
-      /* ── WARRANTY MODAL OPEN ── */
-      const openWarrantyModal = (w=null) => {
-        setForm(w ? { editId:w.id, customer:w.customer, phone:w.phone, plate:w.plate,
-          product:w.product, wtype:w.type, saleDate:w.saleDate,
-          months:String(w.months), note:w.note } : { saleDate:today(), months:"12", wtype:"install" });
-        setModal("warranty");
+      const confirm = () => {
+        const valid=preview.filter(r=>r._status!=="err");
+        if(!valid.length) return;
+        if(importType==="products") onImportProducts(valid);
+        else onImportWarranties(valid);
+        setSummary({added:valid.filter(r=>r._status==="ok").length,updated:valid.filter(r=>r._status==="upd").length,err:preview.filter(r=>r._status==="err").length});
+        setStep("done");
       };
 
       return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",zIndex:300,display:"flex",alignItems:"flex-end"}}>
+          <div style={{background:"#111",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"92vh",display:"flex",flexDirection:"column",border:"1px solid #2a2a2a"}}>
+            <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div style={{fontSize:15,fontWeight:700}}>📂 นำเข้าข้อมูล Excel</div>
+              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px",display:"flex",flexDirection:"column",gap:12}}>
+
+              {step==="select"&&<>
+                <div style={{fontSize:12,color:"#666"}}>เลือกประเภทข้อมูลที่ต้องการนำเข้า</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {[["products","📦 สินค้า/สต๊อก"],["warranties","🛡️ ประกัน"]].map(([v,l])=>(
+                    <button key={v} onClick={()=>setType(v)} style={{padding:"13px 8px",borderRadius:12,border:`2px solid ${importType===v?"#ff6b00":"#2a2a2a"}`,background:importType===v?"rgba(255,107,0,.1)":"#161616",color:importType===v?"#ff9500":"#888",cursor:"pointer",fontWeight:700,fontSize:13}}>{l}</button>
+                  ))}
+                </div>
+                <div style={{background:"#0d0d0d",borderRadius:10,padding:12,border:"1px solid #1a1a1a"}}>
+                  <div style={{fontSize:11,color:"#666",marginBottom:8}}>📋 ดาวน์โหลด Template ก่อนกรอกข้อมูล</div>
+                  <button onClick={()=>downloadTemplate(importType)} style={{width:"100%",padding:"10px",borderRadius:8,border:"1px solid #00cc6633",background:"rgba(0,204,102,.06)",color:"#00cc66",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    ⬇️ ดาวน์โหลด Template {importType==="products"?"สินค้า":"ประกัน"}
+                  </button>
+                  <div style={{fontSize:10,color:"#444",marginTop:6}}>
+                    {importType==="products"?"คอลัมน์: รหัส, ชื่อสินค้า, หมวดหมู่, ราคา, สต๊อก, หน่วย, สต๊อกขั้นต่ำ":"คอลัมน์: ลูกค้า, เบอร์โทร, ทะเบียน, สินค้า/งาน, ประเภท, วันที่ขาย, ระยะ(เดือน), หมายเหตุ"}
+                  </div>
+                </div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+                <button onClick={()=>fileRef.current.click()} disabled={loading}
+                  style={{width:"100%",padding:14,borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:loading?"#555":"#ff9500",fontSize:14,fontWeight:700,cursor:loading?"not-allowed":"pointer"}}>
+                  {loading?<><span className="spin">⏳</span> กำลังอ่านไฟล์...</>:"📁 เลือกไฟล์ Excel (.xlsx / .csv)"}
+                </button>
+              </>}
+
+              {step==="preview"&&<>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700}}>ตรวจสอบข้อมูลก่อนนำเข้า</div>
+                  <button onClick={()=>setStep("select")} style={{background:"none",border:"none",color:"#ff6b00",fontSize:12,cursor:"pointer"}}>← กลับ</button>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <span style={{padding:"3px 10px",borderRadius:20,background:"rgba(0,204,102,.12)",color:"#00cc66",fontSize:11,fontWeight:700}}>✅ เพิ่มใหม่ {preview.filter(r=>r._status==="ok").length}</span>
+                  {importType==="products"&&<span style={{padding:"3px 10px",borderRadius:20,background:"rgba(0,170,255,.12)",color:"#00aaff",fontSize:11,fontWeight:700}}>🔄 อัปเดต {preview.filter(r=>r._status==="upd").length}</span>}
+                  {preview.filter(r=>r._status==="err").length>0&&<span style={{padding:"3px 10px",borderRadius:20,background:"rgba(255,51,51,.12)",color:"#ff6666",fontSize:11,fontWeight:700}}>❌ ข้ามแถว {preview.filter(r=>r._status==="err").length}</span>}
+                </div>
+                <div style={{maxHeight:300,overflowY:"auto"}}>
+                  {preview.map((r,i)=>(
+                    <div key={i} className={`irow-${r._status}`}>
+                      <div style={{fontWeight:600,color:r._status==="err"?"#ff6666":r._status==="upd"?"#00aaff":"#00cc66"}}>
+                        {r._status==="err"?"❌":r._status==="upd"?"🔄":"✅"}&nbsp;
+                        {importType==="products"?`${r._code||"?"} — ${r._name||"?"}`:`${r._cust||"?"} — ${r._prod||"?"}`}
+                      </div>
+                      <div style={{color:"#555",marginTop:2}}>{r._msg}</div>
+                      {importType==="products"&&r._status!=="err"&&<div style={{color:"#444",fontSize:11}}>ราคา ฿{fmt(r._price)} | สต๊อก {r._stock} {r._unit}</div>}
+                      {importType==="warranties"&&r._status!=="err"&&<div style={{color:"#444",fontSize:11}}>วันขาย {r._date} | ประกัน {r._months} เดือน</div>}
+                    </div>
+                  ))}
+                </div>
+                {preview.filter(r=>r._status!=="err").length>0&&
+                  <button onClick={confirm} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700}}>
+                    ✅ ยืนยันนำเข้า {preview.filter(r=>r._status!=="err").length} รายการ
+                  </button>}
+              </>}
+
+              {step==="done"&&summary&&<>
+                <div style={{textAlign:"center",padding:"24px 0"}}>
+                  <div style={{fontSize:44,marginBottom:12}}>🎉</div>
+                  <div style={{fontSize:17,fontWeight:800,marginBottom:12}}>นำเข้าสำเร็จ!</div>
+                  <div style={{display:"flex",justifyContent:"center",gap:10,flexWrap:"wrap"}}>
+                    {summary.added>0&&<div style={{padding:"6px 14px",borderRadius:20,background:"rgba(0,204,102,.12)",color:"#00cc66",fontWeight:700}}>✅ เพิ่มใหม่ {summary.added}</div>}
+                    {summary.updated>0&&<div style={{padding:"6px 14px",borderRadius:20,background:"rgba(0,170,255,.12)",color:"#00aaff",fontWeight:700}}>🔄 อัปเดต {summary.updated}</div>}
+                    {summary.err>0&&<div style={{padding:"6px 14px",borderRadius:20,background:"rgba(255,51,51,.12)",color:"#ff6666",fontWeight:700}}>⏭️ ข้าม {summary.err}</div>}
+                  </div>
+                </div>
+                <button onClick={onClose} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700}}>✓ ปิด</button>
+              </>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       LOGIN
+    ══════════════════════════════════════════════════════════════ */
+    function LoginPage({users,onLogin}) {
+      const [u,setU]=useState(""), [p,setP]=useState(""), [err,setErr]=useState(""), [show,setShow]=useState(false), [load,setLoad]=useState(false);
+      const go=()=>{
+        if(!u||!p){setErr("กรุณากรอก Username และ Password");return;}
+        setLoad(true);
+        setTimeout(()=>{ const user=users.find(x=>x.username===u&&x.password===p); if(user)onLogin(user); else{setErr("Username หรือ Password ไม่ถูกต้อง");setLoad(false);} },600);
+      };
+      return (
+        <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0d0d0d,#1a0a00,#0d0d0d)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div className="login-box" style={{width:"100%",maxWidth:360}}>
+            <div style={{textAlign:"center",marginBottom:32}}>
+              <div className="logo-pulse" style={{width:80,height:80,borderRadius:"50%",background:"linear-gradient(135deg,#ff6b00,#ff9500)",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:38,marginBottom:12}}>🚗</div>
+              <div style={{fontSize:24,fontWeight:800,color:"#fff"}}>BENZ ประดับยนต์</div>
+              <div style={{fontSize:12,color:"#ff6b00",letterSpacing:2,marginTop:4}}>MANAGEMENT SYSTEM</div>
+            </div>
+            <div style={{background:"#111",borderRadius:18,padding:24,border:"1px solid #2a2a2a",boxShadow:"0 8px 32px rgba(0,0,0,.5)"}}>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>🔐 เข้าสู่ระบบ</div>
+              {err&&<div style={{background:"rgba(255,51,51,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#ff6666",marginBottom:12}}>⚠️ {err}</div>}
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>Username</label>
+                <input value={u} onChange={e=>{setU(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="กรอก Username" autoComplete="username"
+                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:14,outline:"none"}}/>
+              </div>
+              <div style={{marginBottom:18}}>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>Password</label>
+                <div style={{position:"relative"}}>
+                  <input type={show?"text":"password"} value={p} onChange={e=>{setP(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="กรอก Password" autoComplete="current-password"
+                    style={{width:"100%",padding:"11px 44px 11px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:14,outline:"none"}}/>
+                  <button onClick={()=>setShow(!show)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#666",cursor:"pointer",fontSize:16}}>{show?"🙈":"👁️"}</button>
+                </div>
+              </div>
+              <button onClick={go} disabled={load} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:load?"#555":"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:15,fontWeight:700,cursor:load?"not-allowed":"pointer"}}>
+                {load?"⏳ กำลังเข้าสู่ระบบ...":"🚀 เข้าสู่ระบบ"}
+              </button>
+              <div style={{marginTop:16,padding:12,background:"#0d0d0d",borderRadius:10,fontSize:11,color:"#555",border:"1px solid #1a1a1a"}}>
+                <div style={{fontWeight:600,color:"#666",marginBottom:4}}>บัญชีทดสอบ:</div>
+                <div>👤 admin / 1234 (ผู้ดูแลระบบ)</div><div>👤 staff / 1234 (พนักงาน)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       BARCODE SCANNER
+    ══════════════════════════════════════════════════════════════ */
+    function BarcodeScanner({onScan,onClose,title}) {
+      const ref=useRef(null);
+      const [status,setStatus]=useState("starting");
+      const [last,setLast]=useState("");
+      const [manual,setManual]=useState("");
+      useEffect(()=>{
+        let sc=null;
+        (async()=>{ try{ sc=new Html5Qrcode("barcode-reader"); ref.current=sc; await sc.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:120},aspectRatio:1.6},(d)=>{if(d!==last){setLast(d);if(navigator.vibrate)navigator.vibrate(100);onScan(d);}},()=>{}); setStatus("scanning"); }catch{setStatus("error");} })();
+        return()=>{ if(ref.current)ref.current.stop().catch(()=>{}); };
+      },[]);
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.95)",zIndex:300,display:"flex",flexDirection:"column"}}>
+          <div style={{background:"#111",padding:"14px 16px",borderBottom:"1px solid #2a2a2a",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:15,fontWeight:700}}>📷 {title||"สแกนบาร์โค้ด"}</div>
+            <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          </div>
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20,gap:16}}>
+            <div style={{width:"100%",maxWidth:360,borderRadius:14,overflow:"hidden",border:"2px solid #ff6b00",background:"#000",position:"relative",minHeight:160}}>
+              <div id="barcode-reader" style={{width:"100%"}}></div>
+              {status==="starting"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",flexDirection:"column",gap:8}}><div style={{fontSize:28}}>📷</div><div style={{fontSize:13,color:"#888"}}>กำลังเปิดกล้อง...</div></div>}
+              {status==="error"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#0d0d0d",flexDirection:"column",gap:8,padding:20}}><div style={{fontSize:28}}>❌</div><div style={{fontSize:13,color:"#ff6666",textAlign:"center"}}>กรุณาอนุญาต Camera Access</div></div>}
+            </div>
+            {last&&<div style={{background:"rgba(255,107,0,.12)",border:"1px solid #ff6b00",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#ff9500",textAlign:"center",width:"100%",maxWidth:360}}>✅ สแกนได้: <strong>{last}</strong></div>}
+            <div style={{width:"100%",maxWidth:360}}>
+              <div style={{fontSize:11,color:"#666",marginBottom:6,textAlign:"center"}}>หรือกรอกรหัสด้วยตนเอง</div>
+              <div style={{display:"flex",gap:8}}>
+                <input value={manual} onChange={e=>setManual(e.target.value)} onKeyDown={e=>e.key==="Enter"&&manual.trim()&&onScan(manual.trim())} placeholder="BZ001"
+                  style={{flex:1,padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                <button onClick={()=>manual.trim()&&onScan(manual.trim())} style={{padding:"10px 16px",borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>ค้นหา</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       APP
+    ══════════════════════════════════════════════════════════════ */
+    const TABS=["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","รายงาน"];
+    const ICONS={"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
+
+    function App() {
+      const [users]                       = usePersist("benz_users",        DEF_USERS);
+      const [cu,setCU]                    = useState(()=>{ try{const s=sessionStorage.getItem("benz_sess");return s?JSON.parse(s):null;}catch{return null;} });
+      const [tab,setTab]                  = useState("หน้าหลัก");
+      const [products,setProducts]        = usePersist("benz_products",     DEF_PRODUCTS);
+      const [transactions,setTxs]         = usePersist("benz_transactions", DEF_TX);
+      const [warranties,setWarranties]    = usePersist("benz_warranties",   DEF_WARRANTIES);
+      const [shopName]                    = usePersist("benz_shopname",     "BENZ ประดับยนต์");
+      const [modal,setModal]              = useState(null);
+      const [form,setForm]                = useState({});
+      const [editP,setEditP]              = useState(null);
+      const [searchQ,setSearchQ]          = useState("");
+      const [wSearchQ,setWSearchQ]        = useState("");
+      const [reportDate,setRDate]         = useState(today());
+      const [toast,setToast]              = useState(null);
+      const [lastRcp,setLastRcp]          = useState(null);
+      const [wFilter,setWFilter]          = useState("all");
+      const [scanner,setScanner]          = useState(null); // null | "in" | "out" | "stock"
+      const [scanRes,setScanRes]          = useState(null);
+      const [showImport,setShowImport]    = useState(false);
+
+      const login  = u => { setCU(u); try{sessionStorage.setItem("benz_sess",JSON.stringify(u));}catch{} };
+      const logout = () => { if(!window.confirm("ต้องการออกจากระบบ?"))return; setCU(null); try{sessionStorage.removeItem("benz_sess");}catch{} setTab("หน้าหลัก"); };
+      if(!cu) return <LoginPage users={users} onLogin={login}/>;
+
+      const toast_ = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),2800); };
+      const closeModal = () => { setModal(null); setForm({}); setScanRes(null); };
+
+      /* Barcode */
+      const onScan = code => {
+        setScanner(null);
+        const p=products.find(x=>x.code.toLowerCase()===code.toLowerCase()||String(x.id)===code);
+        if(p){
+          if(scanner==="in"||scanner==="out"){ setForm(f=>({...f,productId:String(p.id)})); setScanRes({ok:true,p}); toast_(`✅ พบ: ${p.name}`); }
+          else{ setSearchQ(p.code); toast_(`✅ พบ: ${p.name}`); }
+        } else { setScanRes({ok:false,code}); toast_(`⚠️ ไม่พบรหัส: ${code}`,"err"); }
+      };
+
+      /* TX */
+      const submitTx = type => {
+        const p=products.find(x=>x.id===parseInt(form.productId));
+        if(!p) return toast_("กรุณาเลือกสินค้า","err");
+        const qty=parseInt(form.qty);
+        if(!qty||qty<=0) return toast_("กรุณากรอกจำนวน","err");
+        if(type==="out"&&p.stock<qty) return toast_("⚠️ สต๊อกไม่เพียงพอ!","err");
+        const tx={id:Date.now(),date:form.date||today(),time:nowTs(),type,productId:p.id,productName:p.name,qty,price:p.price,note:form.note||(type==="out"?"ขายลูกค้า":"รับสินค้า"),total:p.price*qty,createdBy:cu.name};
+        setTxs(prev=>[tx,...prev]);
+        setProducts(prev=>prev.map(x=>x.id===p.id?{...x,stock:type==="in"?x.stock+qty:x.stock-qty}:x));
+        if(type==="out") setLastRcp(tx);
+        closeModal(); toast_(type==="in"?`✅ รับสินค้าเข้า +${qty}`:`✅ บันทึกการขาย -${qty}`);
+      };
+
+      /* Add product (auto-code) */
+      const openAdd = () => { setForm({code:genNextCode(products)}); setModal("addProduct"); };
+      const submitAdd = () => {
+        if(!form.name||!form.code||!form.price) return toast_("กรอกข้อมูลให้ครบ","err");
+        if(products.find(x=>x.code===form.code)) return toast_("รหัสนี้มีอยู่แล้ว","err");
+        setProducts(prev=>[...prev,{id:Date.now(),code:form.code,name:form.name,category:form.category||"ทั่วไป",stock:parseInt(form.stock)||0,price:parseFloat(form.price)||0,unit:form.unit||"ชิ้น",minStock:parseInt(form.minStock)||5}]);
+        closeModal(); toast_("✅ เพิ่มสินค้าสำเร็จ");
+      };
+
+      /* Edit product */
+      const submitEdit = () => { setProducts(prev=>prev.map(x=>x.id===editP.id?{...editP}:x)); setEditP(null); toast_("✅ แก้ไขสำเร็จ"); };
+      const delP = id => { if(!window.confirm("ลบสินค้านี้?"))return; setProducts(prev=>prev.filter(x=>x.id!==id)); setEditP(null); toast_("🗑️ ลบแล้ว"); };
+
+      /* Warranty */
+      const openW = (w=null) => {
+        setForm(w?{editId:w.id,customer:w.customer,phone:w.phone,plate:w.plate,product:w.product,wtype:w.type,saleDate:w.saleDate,months:String(w.months),note:w.note}:{saleDate:today(),months:"12",wtype:"install"});
+        setModal("warranty");
+      };
+      const submitW = () => {
+        if(!form.customer||!form.product||!form.saleDate||!form.months) return toast_("กรอกข้อมูลให้ครบ","err");
+        const d={customer:form.customer,phone:form.phone||"",plate:form.plate||"",product:form.product,type:form.wtype||"install",saleDate:form.saleDate,months:parseInt(form.months)||12,note:form.note||""};
+        if(form.editId){ setWarranties(prev=>prev.map(w=>w.id===form.editId?{...w,...d}:w)); toast_("✅ แก้ไขประกันสำเร็จ"); }
+        else{ setWarranties(prev=>[{id:Date.now(),...d},...prev]); toast_("✅ เพิ่มประกันสำเร็จ"); }
+        closeModal();
+      };
+      const delW = id => { if(!window.confirm("ลบรายการประกันนี้?"))return; setWarranties(prev=>prev.filter(w=>w.id!==id)); setModal(null);setForm({}); toast_("🗑️ ลบแล้ว"); };
+
+      /* Import handlers */
+      const importProducts = rows => {
+        setProducts(prev=>{
+          let arr=[...prev];
+          rows.forEach(r=>{ const i=arr.findIndex(x=>x.code===r._code); if(i>=0)arr[i]={...arr[i],name:r._name,category:r._cat,price:r._price,stock:r._stock,unit:r._unit,minStock:r._min}; else arr.push({id:Date.now()+Math.random(),code:r._code,name:r._name,category:r._cat,price:r._price,stock:r._stock,unit:r._unit,minStock:r._min}); });
+          return arr;
+        });
+        toast_(`✅ Import สำเร็จ ${rows.length} รายการ`);
+      };
+      const importWarranties = rows => {
+        setWarranties(prev=>[...prev,...rows.map(r=>({id:Date.now()+Math.random(),customer:r._cust,phone:r._phone,plate:r._plate,product:r._prod,type:r._type,saleDate:r._date,months:r._months,note:r._note}))]);
+        toast_(`✅ Import ประกัน ${rows.length} รายการ`);
+      };
+
+      /* Computed */
+      const lowStock  = products.filter(p=>p.stock<p.minStock);
+      const warnW     = warranties.filter(w=>wStatus(w)==="warn");
+      const expW      = warranties.filter(w=>wStatus(w)==="exp");
+      const tSales    = transactions.filter(t=>t.date===reportDate&&t.type==="out");
+      const tIn       = transactions.filter(t=>t.date===reportDate&&t.type==="in");
+      const tRev      = tSales.reduce((s,t)=>s+t.total,0);
+      const filtProd  = products.filter(p=>p.name.toLowerCase().includes(searchQ.toLowerCase())||p.code.toLowerCase().includes(searchQ.toLowerCase())||p.category.toLowerCase().includes(searchQ.toLowerCase()));
+      const filtW     = warranties.filter(w=>wFilter==="all"||wStatus(w)===wFilter).filter(w=>!wSearchQ||w.customer.includes(wSearchQ)||w.plate?.includes(wSearchQ)||w.product.includes(wSearchQ)||w.phone?.includes(wSearchQ));
+
+      return (
         <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",maxWidth:440,margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0"}}>
+          {scanner&&<BarcodeScanner title={scanner==="in"?"สแกนรับเข้า":scanner==="out"?"สแกนขายออก":"สแกนค้นหา"} onScan={onScan} onClose={()=>setScanner(null)}/>}
+          {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
 
           {/* HEADER */}
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div>
-                <div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div>
-                <div style={{fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.2}}>{shopName}</div>
+              <div><div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:20,fontWeight:800,lineHeight:1.2}}>{shopName}</div></div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:9,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
+                <button onClick={logout} title="ออกจากระบบ" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
               </div>
-              <div style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#ff6b00,#ff9500)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:"0 0 18px rgba(255,107,0,.5)"}}>🚗</div>
             </div>
-            {/* ALERTS ROW */}
             <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:lowStock.length||expW.length||warnW.length?8:0}}>
-              {lowStock.length>0&&<div style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff6666",display:"flex",gap:5,alignItems:"center"}}>
-                <span>📦</span><span>สต๊อกใกล้หมด <strong>{lowStock.length} รายการ</strong></span>
-              </div>}
-              {expW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff4444",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff8888",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}>
-                <span>🛡️</span><span>ประกันหมดแล้ว <strong>{expW.length} รายการ</strong> — แตะเพื่อดู</span>
-              </div>}
-              {warnW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,200,0,.08)",border:"1px solid #ffcc0055",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ffcc00",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}>
-                <span>⚠️</span><span>ประกันใกล้หมด <strong>{warnW.length} รายการ</strong> — แตะเพื่อดู</span>
-              </div>}
+              {lowStock.length>0&&<div style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff6666",display:"flex",gap:5,alignItems:"center"}}><span>📦</span><span>สต๊อกใกล้หมด <strong>{lowStock.length} รายการ</strong></span></div>}
+              {expW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,50,50,.12)",border:"1px solid #ff4444",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ff8888",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}><span>🛡️</span><span>ประกันหมดแล้ว <strong>{expW.length} รายการ</strong></span></div>}
+              {warnW.length>0&&<div onClick={()=>setTab("ประกัน")} style={{background:"rgba(255,200,0,.08)",border:"1px solid #ffcc0055",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ffcc00",cursor:"pointer",display:"flex",gap:5,alignItems:"center"}}><span>⚠️</span><span>ประกันใกล้หมด <strong>{warnW.length} รายการ</strong></span></div>}
             </div>
           </div>
 
-          {/* TOAST */}
           {toast&&<div style={{position:"fixed",top:110,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?"#cc2222":"#1a7a40",color:"#fff",padding:"9px 18px",borderRadius:10,zIndex:999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.5)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
+          {lastRcp&&tab==="หน้าหลัก"&&<div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"#aaa"}}>🧾 <strong style={{color:"#fff"}}>{lastRcp.productName}</strong></div><button onClick={()=>printReceipt(lastRcp,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ ใบเสร็จ</button></div>}
 
-          {/* LAST RECEIPT BANNER */}
-          {lastReceipt&&tab==="หน้าหลัก"&&(
-            <div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:12,color:"#aaa"}}>🧾 <strong style={{color:"#fff"}}>{lastReceipt.productName}</strong></div>
-              <button onClick={()=>printReceipt(lastReceipt,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ ใบเสร็จ</button>
-            </div>
-          )}
-
-          {/* CONTENT */}
           <div style={{padding:"0 16px"}}>
-            {tab==="หน้าหลัก" && <HomeTab products={products} todayRev={todayRev} todaySales={todaySales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openWarrantyModal={openWarrantyModal} />}
-            {tab==="สต๊อก"   && <StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditProduct={setEditProduct} lowStock={lowStock} setModal={setModal} />}
-            {tab==="ขาย/รับ" && <TxTab transactions={transactions} setModal={setModal} printReceipt={tx=>printReceipt(tx,shopName)} />}
-            {tab==="ประกัน"  && <WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openWarrantyModal={openWarrantyModal} setModal={setModal} setForm={setForm} delWarranty={delWarranty} printWarranty={w=>printWarranty(w,shopName)} allWarranties={warranties} />}
-            {tab==="รายงาน" && <ReportTab reportDate={reportDate} setReportDate={setReportDate} todaySales={todaySales} todayIn={todayIn} todayRev={todayRev} transactions={transactions} products={products} warranties={warranties} exportAll={()=>exportAll(products,transactions,warranties)} />}
+            {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
+            {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)}/>}
+            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopName)} setScanner={setScanner}/>}
+            {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
+            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport}/>}
           </div>
 
-          {/* BOTTOM NAV */}
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
             {TABS.map(t=>(
               <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0",position:"relative"}}>
                 <span style={{fontSize:19}}>{ICONS[t]}</span>
                 <span style={{fontSize:9,fontWeight:600,color:tab===t?"#ff6b00":"#555"}}>{t}</span>
                 {tab===t&&<div style={{width:4,height:4,borderRadius:"50%",background:"#ff6b00",marginTop:1}}/>}
-                {/* badge */}
                 {t==="ประกัน"&&(expW.length+warnW.length>0)&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:expW.length?"#ff3333":"#ffcc00"}}/>}
                 {t==="สต๊อก"&&lowStock.length>0&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:"#ff3333"}}/>}
               </button>
             ))}
           </div>
 
-          {/* ─── MODALS ─── */}
+          {/* MODALS */}
           {(modal==="in"||modal==="out")&&(
             <Modal title={modal==="in"?"📥 รับสินค้าเข้า":"📤 บันทึกการขาย"} onClose={closeModal}>
-              <Sel label="สินค้า" value={form.productId||""} onChange={v=>setForm(f=>({...f,productId:v}))}>
-                <option value="">-- เลือกสินค้า --</option>
-                {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
-              </Sel>
+              <button onClick={()=>setScanner(modal)} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <span style={{fontSize:20}}>📷</span> สแกนบาร์โค้ดสินค้า
+              </button>
+              {scanRes&&<div style={{padding:"8px 12px",borderRadius:8,fontSize:12,background:scanRes.ok?"rgba(0,204,102,.1)":"rgba(255,51,51,.1)",border:`1px solid ${scanRes.ok?"#00cc6644":"#ff333344"}`,color:scanRes.ok?"#00cc66":"#ff6666"}}>
+                {scanRes.ok?`✅ พบ: ${scanRes.p.name} (${scanRes.p.code})`:`❌ ไม่พบรหัส: ${scanRes.code}`}
+              </div>}
+              <div style={{borderTop:"1px solid #222",paddingTop:8}}>
+                <div style={{fontSize:11,color:"#666",marginBottom:8}}>หรือเลือกจากรายการ</div>
+                <Sel label="สินค้า" value={form.productId||""} onChange={v=>setForm(f=>({...f,productId:v}))}>
+                  <option value="">-- เลือกสินค้า --</option>
+                  {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
+                </Sel>
+              </div>
               <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0"/>
               <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
               <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder={modal==="in"?"รับจากซัพพลายเออร์":"ขายลูกค้า"}/>
@@ -347,27 +590,41 @@
 
           {modal==="addProduct"&&(
             <Modal title="➕ เพิ่มสินค้าใหม่" onClose={closeModal}>
-              <Inp label="รหัสสินค้า *" value={form.code||""} onChange={v=>setForm(f=>({...f,code:v}))} placeholder="BZ009"/>
+              {/* AUTO-CODE FIELD */}
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>รหัสสินค้า <span style={{fontSize:10,background:"#ff6b0022",color:"#ff9500",padding:"1px 6px",borderRadius:4,border:"1px solid #ff6b0044"}}>Auto</span></label>
+                <div style={{display:"flex",gap:8}}>
+                  <input value={form.code||""} onChange={e=>setForm(f=>({...f,code:e.target.value}))}
+                    style={{flex:1,padding:"11px 12px",borderRadius:8,border:"1px solid #ff6b0055",background:"#1a0a00",color:"#ff9500",fontSize:15,fontWeight:800,letterSpacing:1}}/>
+                  <button onClick={()=>setForm(f=>({...f,code:genNextCode(products)}))}
+                    style={{padding:"10px 13px",borderRadius:8,border:"1px solid #333",background:"#222",color:"#888",cursor:"pointer",fontSize:12,flexShrink:0}}>🔄 ใหม่</button>
+                </div>
+                <div style={{fontSize:10,color:"#444",marginTop:3}}>ระบบสร้างรหัสให้อัตโนมัติ กดปุ่ม 🔄 เพื่อสร้างรหัสถัดไป หรือแก้ไขด้วยตนเอง</div>
+              </div>
               <Inp label="ชื่อสินค้า *" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="ชื่อสินค้า"/>
               <Inp label="หมวดหมู่" value={form.category||""} onChange={v=>setForm(f=>({...f,category:v}))} placeholder="ฟิล์ม / กล้อง / พรม..."/>
               <Inp label="ราคา (บาท) *" type="number" value={form.price||""} onChange={v=>setForm(f=>({...f,price:v}))} placeholder="0"/>
               <Inp label="สต๊อกเริ่มต้น" type="number" value={form.stock||""} onChange={v=>setForm(f=>({...f,stock:v}))} placeholder="0"/>
               <Inp label="หน่วย" value={form.unit||""} onChange={v=>setForm(f=>({...f,unit:v}))} placeholder="ชิ้น / ม้วน / ชุด"/>
-              <OBtn onClick={submitNewProduct}>✅ เพิ่มสินค้า</OBtn>
+              <Inp label="สต๊อกขั้นต่ำ (แจ้งเตือน)" type="number" value={form.minStock||"5"} onChange={v=>setForm(f=>({...f,minStock:v}))} placeholder="5"/>
+              <OBtn onClick={submitAdd}>✅ เพิ่มสินค้า</OBtn>
             </Modal>
           )}
 
-          {editProduct&&(
-            <Modal title="✏️ แก้ไขสินค้า" onClose={()=>setEditProduct(null)}>
-              <div style={{fontSize:11,color:"#555"}}>รหัส: {editProduct.code}</div>
-              <Inp label="ชื่อสินค้า" value={editProduct.name} onChange={v=>setEditProduct(p=>({...p,name:v}))}/>
-              <Inp label="หมวดหมู่" value={editProduct.category} onChange={v=>setEditProduct(p=>({...p,category:v}))}/>
-              <Inp label="ราคา (บาท)" type="number" value={editProduct.price} onChange={v=>setEditProduct(p=>({...p,price:parseFloat(v)}))}/>
-              <Inp label="สต๊อกปัจจุบัน" type="number" value={editProduct.stock} onChange={v=>setEditProduct(p=>({...p,stock:parseInt(v)}))}/>
-              <Inp label="เกณฑ์แจ้งเตือน (ชิ้น)" type="number" value={editProduct.minStock} onChange={v=>setEditProduct(p=>({...p,minStock:parseInt(v)}))}/>
-              <Inp label="หน่วย" value={editProduct.unit} onChange={v=>setEditProduct(p=>({...p,unit:v}))}/>
+          {editP&&(
+            <Modal title="✏️ แก้ไขสินค้า" onClose={()=>setEditP(null)}>
+              <div style={{display:"flex",alignItems:"center",gap:8,background:"#1a0a00",borderRadius:8,padding:"8px 12px",border:"1px solid #ff6b0033"}}>
+                <span style={{fontSize:11,color:"#555"}}>รหัส:</span>
+                <span style={{fontSize:14,fontWeight:800,color:"#ff9500"}}>{editP.code}</span>
+              </div>
+              <Inp label="ชื่อสินค้า" value={editP.name} onChange={v=>setEditP(p=>({...p,name:v}))}/>
+              <Inp label="หมวดหมู่" value={editP.category} onChange={v=>setEditP(p=>({...p,category:v}))}/>
+              <Inp label="ราคา (บาท)" type="number" value={editP.price} onChange={v=>setEditP(p=>({...p,price:parseFloat(v)}))}/>
+              <Inp label="สต๊อกปัจจุบัน" type="number" value={editP.stock} onChange={v=>setEditP(p=>({...p,stock:parseInt(v)}))}/>
+              <Inp label="สต๊อกขั้นต่ำ" type="number" value={editP.minStock} onChange={v=>setEditP(p=>({...p,minStock:parseInt(v)}))}/>
+              <Inp label="หน่วย" value={editP.unit} onChange={v=>setEditP(p=>({...p,unit:v}))}/>
               <OBtn onClick={submitEdit}>✅ บันทึกการแก้ไข</OBtn>
-              <button onClick={()=>delProduct(editProduct.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบสินค้านี้</button>
+              <button onClick={()=>delP(editP.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบสินค้านี้</button>
             </Modal>
           )}
 
@@ -379,56 +636,55 @@
               <Inp label="ทะเบียนรถ" value={form.plate||""} onChange={v=>setForm(f=>({...f,plate:v}))} placeholder="กข 1234 กทม"/>
               <SecTitle>ข้อมูลประกัน</SecTitle>
               <Sel label="ประเภทประกัน" value={form.wtype||"install"} onChange={v=>setForm(f=>({...f,wtype:v}))}>
-                <option value="install">🔧 ประกันการติดตั้ง (ฟิล์ม, กล้อง, ฯลฯ)</option>
-                <option value="product">📦 ประกันสินค้า (Warranty)</option>
+                <option value="install">🔧 ประกันการติดตั้ง</option><option value="product">📦 ประกันสินค้า</option>
               </Sel>
               <Inp label="ชื่อสินค้า / งานที่ทำ *" value={form.product||""} onChange={v=>setForm(f=>({...f,product:v}))} placeholder="เช่น ฟิล์ม 3M Carbon รอบคัน"/>
               <Inp label="วันที่ขาย *" type="date" value={form.saleDate||today()} onChange={v=>setForm(f=>({...f,saleDate:v}))}/>
               <Sel label="ระยะประกัน" value={form.months||"12"} onChange={v=>setForm(f=>({...f,months:v}))}>
-                {[3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน ({Math.round(m/12*10)/10} ปี)</option>)}
+                {[3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน</option>)}
               </Sel>
-              {form.saleDate&&form.months&&<div style={{background:"#0a1a0a",border:"1px solid #1a3a1a",borderRadius:8,padding:10,fontSize:12,color:"#aaa"}}>
-                📅 วันหมดประกัน: <strong style={{color:"#00cc66"}}>{thDate(addMonths(form.saleDate,parseInt(form.months)||0))}</strong>
-              </div>}
+              {form.saleDate&&form.months&&<div style={{background:"#0a1a0a",border:"1px solid #1a3a1a",borderRadius:8,padding:10,fontSize:12,color:"#aaa"}}>📅 วันหมดประกัน: <strong style={{color:"#00cc66"}}>{thDate(addMonths(form.saleDate,parseInt(form.months)||0))}</strong></div>}
               <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="รายละเอียดเพิ่มเติม"/>
-              <OBtn onClick={submitWarranty}>{form.editId?"✅ บันทึกการแก้ไข":"✅ เพิ่มรายการประกัน"}</OBtn>
-              {form.editId&&<button onClick={()=>delWarranty(form.editId)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>}
+              <OBtn onClick={submitW}>{form.editId?"✅ บันทึกการแก้ไข":"✅ เพิ่มรายการประกัน"}</OBtn>
+              {form.editId&&<button onClick={()=>delW(form.editId)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>}
             </Modal>
           )}
         </div>
       );
     }
 
-    /* ═══ TABS ════════════════════════════════════════════════════ */
-
-    function HomeTab({products,todayRev,todaySales,lowStock,warnW,expW,setTab,setModal,transactions,openWarrantyModal}) {
-      const totalStock = products.reduce((s,p)=>s+p.stock,0);
-      const totalVal   = products.reduce((s,p)=>s+p.stock*p.price,0);
+    /* ══════════════════════════════════════════════════════════════  TABS  */
+    function HomeTab({products,tRev,tSales,lowStock,warnW,expW,setTab,setModal,transactions,openW,setScanner}) {
       return (
         <div style={{paddingTop:14}}>
           <div style={{fontSize:11,color:"#555",marginBottom:8}}>📅 วันนี้ {thDate(today())}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <Stat icon="💰" label="ยอดขายวันนี้"    val={`฿${fmt(todayRev)}`}           color="#ff6b00"/>
-            <Stat icon="🛒" label="รายการขายวันนี้" val={`${todaySales.length} รายการ`} color="#00aaff"/>
-            <Stat icon="📦" label="สต๊อกรวม"        val={`${fmt(totalStock)} ชิ้น`}     color="#00cc66"/>
+            <Stat icon="💰" label="ยอดขายวันนี้"    val={`฿${fmt(tRev)}`}           color="#ff6b00"/>
+            <Stat icon="🛒" label="รายการขายวันนี้" val={`${tSales.length} รายการ`} color="#00aaff"/>
+            <Stat icon="📦" label="สต๊อกรวม"        val={`${fmt(products.reduce((s,p)=>s+p.stock,0))} ชิ้น`} color="#00cc66"/>
             <Stat icon="🛡️" label="ประกันใกล้หมด"   val={`${expW.length+warnW.length} รายการ`} color={expW.length?"#ff3333":"#ffcc00"}/>
           </div>
           <SecTitle>การดำเนินการด่วน</SecTitle>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <ABtn icon="📥" label="รับสินค้า"   color="#00cc66" onClick={()=>setModal("in")}/>
             <ABtn icon="📤" label="บันทึกขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
-            <ABtn icon="🛡️" label="เพิ่มประกัน" color="#00aaff" onClick={()=>openWarrantyModal()}/>
+            <ABtn icon="🛡️" label="เพิ่มประกัน" color="#00aaff" onClick={()=>openW()}/>
             <ABtn icon="📊" label="รายงาน"      color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
           </div>
-          {lowStock.length>0&&<>
-            <SecTitle>📦 สต๊อกใกล้หมด</SecTitle>
-            {lowStock.map(p=>(
-              <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff333344",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"#666"}}>{p.code}</div></div>
-                <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:800,color:"#ff3333"}}>{p.stock}</div><div style={{fontSize:10,color:"#ff6666"}}>{p.unit}เหลือ</div></div>
-              </div>
-            ))}
-          </>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <button onClick={()=>setScanner("in")} style={{padding:"12px 8px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:22}}>📷</span><span style={{fontSize:11,fontWeight:600}}>สแกนรับของเข้า</span>
+            </button>
+            <button onClick={()=>setScanner("out")} style={{padding:"12px 8px",borderRadius:12,border:"2px dashed #ff6b0044",background:"rgba(255,107,0,.05)",color:"#ff9500",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:22}}>📷</span><span style={{fontSize:11,fontWeight:600}}>สแกนขายออก</span>
+            </button>
+          </div>
+          {lowStock.length>0&&<><SecTitle>📦 สต๊อกใกล้หมด</SecTitle>{lowStock.map(p=>(
+            <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff333344",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"#666"}}>{p.code}</div></div>
+              <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:800,color:"#ff3333"}}>{p.stock}</div><div style={{fontSize:10,color:"#ff6666"}}>{p.unit}เหลือ</div></div>
+            </div>
+          ))}</>}
           <SecTitle>รายการล่าสุด</SecTitle>
           {transactions.filter(t=>t.date===today()).slice(0,4).map(t=><TxRow key={t.id} tx={t}/>)}
           {transactions.filter(t=>t.date===today()).length===0&&<Empty msg="ยังไม่มีรายการวันนี้"/>}
@@ -436,18 +692,23 @@
       );
     }
 
-    function StockTab({products,searchQ,setSearchQ,setEditProduct,lowStock,setModal}) {
+    function StockTab({products,searchQ,setSearchQ,setEditP,lowStock,openAdd,openScanner,setShowImport,doExport}) {
       return (
         <div style={{paddingTop:14}}>
-          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="🔍 ค้นหาสินค้า รหัส หมวดหมู่..."
-            style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:10}}/>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:11,color:"#555"}}>{products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length}</span>}</div>
-            <button onClick={()=>setModal("addProduct")} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="🔍 ค้นหาสินค้า รหัส หมวดหมู่..."
+              style={{flex:1,padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+            <button onClick={openScanner} style={{padding:"10px 14px",borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",cursor:"pointer",fontSize:18}} title="สแกนค้นหา">📷</button>
           </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+            <button onClick={openAdd} style={{padding:"9px 0",borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
+            <button onClick={()=>setShowImport(true)} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00aaff44",background:"rgba(0,170,255,.08)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer"}}>📂 Import</button>
+            <button onClick={doExport} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:12,fontWeight:700,cursor:"pointer"}}>📊 Export</button>
+          </div>
+          <div style={{fontSize:11,color:"#555",marginBottom:8}}>{products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length}</span>}</div>
           {products.map(p=>{
             const isLow=p.stock<p.minStock;
-            return <div key={p.id} onClick={()=>setEditProduct({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            return <div key={p.id} onClick={()=>setEditP({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{flex:1}}>
                 <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
                   <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
@@ -467,7 +728,7 @@
       );
     }
 
-    function TxTab({transactions,setModal,printReceipt}) {
+    function TxTab({transactions,setModal,printRcp,setScanner}) {
       const [filter,setFilter]=useState("all");
       const list=filter==="all"?transactions:transactions.filter(t=>t.type===filter);
       return (
@@ -477,115 +738,93 @@
               <button key={v} onClick={()=>setFilter(v)} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",background:filter===v?"#ff6b00":"#1a1a1a",color:filter===v?"#fff":"#666",fontSize:12,fontWeight:600}}>{l}</button>
             ))}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:12}}>
             <ABtn icon="📥" label="รับสินค้า" color="#00cc66" onClick={()=>setModal("in")}/>
             <ABtn icon="📤" label="บันทึกขาย" color="#ff6b00" onClick={()=>setModal("out")}/>
+            <button onClick={()=>setScanner("in")} style={{flex:1,padding:"13px 4px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนรับ</span>
+            </button>
+            <button onClick={()=>setScanner("out")} style={{flex:1,padding:"13px 4px",borderRadius:12,border:"2px dashed #ff6b0044",background:"rgba(255,107,0,.05)",color:"#ff9500",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนขาย</span>
+            </button>
           </div>
-          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printReceipt(t):null}/>)}
+          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null}/>)}
           {list.length===0&&<Empty msg="ไม่มีรายการ"/>}
         </div>
       );
     }
 
-    /* ─── WARRANTY TAB ─────────────────────────────────────────── */
-    function WarrantyTab({warranties,wFilter,setWFilter,wSearchQ,setWSearchQ,openWarrantyModal,delWarranty,printWarranty,allWarranties}) {
-      const [detail, setDetail] = useState(null);
+    function WarrantyTab({warranties,wFilter,setWFilter,wSearchQ,setWSearchQ,openW,delW,printW,allW}) {
+      const [detail,setDetail]=useState(null);
       const filters=[["all","ทั้งหมด"],["ok","ปกติ"],["warn","ใกล้หมด"],["exp","หมดแล้ว"]];
-      const counts={all:allWarranties.length,ok:allWarranties.filter(w=>wStatus(w)==="ok").length,warn:allWarranties.filter(w=>wStatus(w)==="warn").length,exp:allWarranties.filter(w=>wStatus(w)==="exp").length};
-
-      if (detail) {
-        const w = allWarranties.find(x=>x.id===detail);
-        if (!w) { setDetail(null); return null; }
-        const s = wStatus(w);
-        const exp = addMonths(w.saleDate, w.months);
-        const dl = daysLeft(exp);
-        const p = wPct(w);
-        const sColor = s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
+      const counts={all:allW.length,ok:allW.filter(w=>wStatus(w)==="ok").length,warn:allW.filter(w=>wStatus(w)==="warn").length,exp:allW.filter(w=>wStatus(w)==="exp").length};
+      if(detail){
+        const w=allW.find(x=>x.id===detail);
+        if(!w){setDetail(null);return null;}
+        const s=wStatus(w),exp=addMonths(w.saleDate,w.months),dl=daysLeft(exp),p=wPct(w),sc=s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
         return (
           <div style={{paddingTop:14}}>
             <button onClick={()=>setDetail(null)} style={{background:"none",border:"none",color:"#ff6b00",fontSize:13,cursor:"pointer",marginBottom:12,padding:0}}>← กลับ</button>
             <div style={{background:"#161616",border:"1px solid #2a2a2a",borderRadius:14,padding:16,marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>{w.customer}</div>
-                  <div style={{fontSize:13,fontFamily:"monospace",color:"#00aaff",marginTop:3,background:"rgba(0,170,255,.08)",padding:"2px 8px",borderRadius:6,display:"inline-block",border:"1px solid rgba(0,170,255,.2)"}}>{w.plate||"ไม่ระบุทะเบียน"}</div>
-                </div>
+                <div><div style={{fontSize:16,fontWeight:800}}>{w.customer}</div><div style={{fontSize:13,fontFamily:"monospace",color:"#00aaff",marginTop:3,background:"rgba(0,170,255,.08)",padding:"2px 8px",borderRadius:6,display:"inline-block",border:"1px solid rgba(0,170,255,.2)"}}>{w.plate||"ไม่ระบุทะเบียน"}</div></div>
                 <WBadge s={s}/>
               </div>
               {w.phone&&<div style={{fontSize:12,color:"#666",marginBottom:8}}>📞 {w.phone}</div>}
-
               <div style={{background:"#0d0d0d",borderRadius:10,padding:12,marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:6}}>{w.type==="install"?"🔧":"📦"} {w.product}</div>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>{w.type==="install"?"🔧":"📦"} {w.product}</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}}>
                   <div><div style={{color:"#555"}}>ประเภท</div><div style={{fontWeight:600,color:"#aaa"}}>{w.type==="install"?"ประกันการติดตั้ง":"ประกันสินค้า"}</div></div>
                   <div><div style={{color:"#555"}}>ระยะประกัน</div><div style={{fontWeight:600,color:"#aaa"}}>{w.months} เดือน</div></div>
                   <div><div style={{color:"#555"}}>วันที่ขาย</div><div style={{fontWeight:600,color:"#aaa"}}>{thDate(w.saleDate)}</div></div>
-                  <div><div style={{color:"#555"}}>วันหมดประกัน</div><div style={{fontWeight:600,color:sColor}}>{thDate(exp)}</div></div>
+                  <div><div style={{color:"#555"}}>วันหมดประกัน</div><div style={{fontWeight:600,color:sc}}>{thDate(exp)}</div></div>
                 </div>
                 {w.note&&<div style={{marginTop:8,fontSize:12,color:"#555"}}>📝 {w.note}</div>}
               </div>
-
-              <div style={{background:s==="ok"?"rgba(0,204,102,.08)":s==="warn"?"rgba(255,204,0,.08)":"rgba(255,51,51,.08)",border:`1px solid ${sColor}33`,borderRadius:10,padding:12,textAlign:"center"}}>
-                <div style={{fontSize:24,fontWeight:800,color:sColor}}>
-                  {dl>=0?`เหลืออีก ${dl} วัน`:`หมดไปแล้ว ${Math.abs(dl)} วัน`}
-                </div>
-                <div className="prog-bar" style={{marginTop:8}}>
-                  <div className="prog-fill" style={{width:`${p}%`,background:sColor}}/>
-                </div>
+              <div style={{background:s==="ok"?"rgba(0,204,102,.08)":s==="warn"?"rgba(255,204,0,.08)":"rgba(255,51,51,.08)",border:`1px solid ${sc}33`,borderRadius:10,padding:12,textAlign:"center"}}>
+                <div style={{fontSize:24,fontWeight:800,color:sc}}>{dl>=0?`เหลืออีก ${dl} วัน`:`หมดไปแล้ว ${Math.abs(dl)} วัน`}</div>
+                <div className="prog-bar" style={{marginTop:8}}><div className="prog-fill" style={{width:`${p}%`,background:sc}}/></div>
                 <div style={{fontSize:10,color:"#555",marginTop:4}}>ใช้ประกันไปแล้ว {p}%</div>
               </div>
             </div>
-
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <button onClick={()=>printWarranty(w)} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>🖨️ พิมพ์ใบประกัน</button>
-              <button onClick={()=>{setDetail(null);openWarrantyModal(w);}} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>✏️ แก้ไข</button>
+              <button onClick={()=>printW(w)} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>🖨️ พิมพ์ใบประกัน</button>
+              <button onClick={()=>{setDetail(null);openW(w);}} style={{padding:12,borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:13,cursor:"pointer"}}>✏️ แก้ไข</button>
             </div>
-            <button onClick={()=>{delWarranty(w.id);setDetail(null);}} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>
+            <button onClick={()=>{delW(w.id);setDetail(null);}} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบรายการนี้</button>
           </div>
         );
       }
-
       return (
         <div style={{paddingTop:14}}>
-          <input value={wSearchQ} onChange={e=>setWSearchQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / ทะเบียน / สินค้า / เบอร์โทร"
+          <input value={wSearchQ} onChange={e=>setWSearchQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / ทะเบียน / สินค้า"
             style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:10}}/>
           <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
             {filters.map(([v,l])=>(
-              <button key={v} onClick={()=>setWFilter(v)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:wFilter===v?"#ff6b00":"#1a1a1a",color:wFilter===v?"#fff":"#666"}}>
-                {l} ({counts[v]})
-              </button>
+              <button key={v} onClick={()=>setWFilter(v)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:wFilter===v?"#ff6b00":"#1a1a1a",color:wFilter===v?"#fff":"#666"}}>{l} ({counts[v]})</button>
             ))}
           </div>
-          <div style={{marginBottom:12}}>
-            <button onClick={()=>openWarrantyModal()} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              🛡️ + เพิ่มรายการประกันใหม่
-            </button>
-          </div>
+          <button onClick={()=>openW()} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>🛡️ + เพิ่มรายการประกันใหม่</button>
           {warranties.map(w=>{
-            const s=wStatus(w); const exp=addMonths(w.saleDate,w.months); const dl=daysLeft(exp); const p=wPct(w);
-            const sColor=s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
+            const s=wStatus(w),exp=addMonths(w.saleDate,w.months),dl=daysLeft(exp),p=wPct(w),sc=s==="ok"?"#00cc66":s==="warn"?"#ffcc00":"#ff3333";
             return (
               <div key={w.id} onClick={()=>setDetail(w.id)} style={{background:"#161616",border:`1px solid ${s==="exp"?"#ff333344":s==="warn"?"#ffcc0033":"#2a2a2a"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",position:"relative",overflow:"hidden"}}>
-                <div style={{position:"absolute",top:0,left:0,width:4,height:"100%",background:sColor,borderRadius:"4px 0 0 4px"}}/>
+                <div style={{position:"absolute",top:0,left:0,width:4,height:"100%",background:sc,borderRadius:"4px 0 0 4px"}}/>
                 <div style={{paddingLeft:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                    <div>
-                      <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{w.customer}</div>
-                      <div style={{fontSize:12,fontFamily:"monospace",color:"#00aaff",marginTop:2}}>{w.plate||"ไม่ระบุทะเบียน"}</div>
-                    </div>
+                    <div><div style={{fontSize:14,fontWeight:700}}>{w.customer}</div><div style={{fontSize:12,fontFamily:"monospace",color:"#00aaff",marginTop:2}}>{w.plate||"ไม่ระบุทะเบียน"}</div></div>
                     <WBadge s={s}/>
                   </div>
                   <div style={{fontSize:12,color:"#888",marginBottom:6}}>{w.type==="install"?"🔧":"📦"} {w.product}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11,marginBottom:8}}>
                     <div style={{color:"#555"}}>ขาย: <span style={{color:"#aaa"}}>{thDate(w.saleDate)}</span></div>
-                    <div style={{color:"#555"}}>หมด: <span style={{color:sColor,fontWeight:600}}>{thDate(exp)}</span></div>
+                    <div style={{color:"#555"}}>หมด: <span style={{color:sc,fontWeight:600}}>{thDate(exp)}</span></div>
                     {w.phone&&<div style={{color:"#555"}}>📞 <span style={{color:"#888"}}>{w.phone}</span></div>}
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:3}}>
-                    <span>ใช้ไป {p}%</span>
-                    <span style={{color:sColor,fontWeight:600}}>{dl>=0?`เหลือ ${dl} วัน`:`หมด ${Math.abs(dl)} วันแล้ว`}</span>
+                    <span>ใช้ไป {p}%</span><span style={{color:sc,fontWeight:600}}>{dl>=0?`เหลือ ${dl} วัน`:`หมด ${Math.abs(dl)} วันแล้ว`}</span>
                   </div>
-                  <div className="prog-bar"><div className="prog-fill" style={{width:`${p}%`,background:sColor}}/></div>
+                  <div className="prog-bar"><div className="prog-fill" style={{width:`${p}%`,background:sc}}/></div>
                 </div>
               </div>
             );
@@ -595,33 +834,19 @@
       );
     }
 
-    /* ─── WARRANTY BADGE ───────────────────────────────────────── */
-    function WBadge({s}) {
-      const map={ok:{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"},warn:{bg:"rgba(255,204,0,.1)",c:"#ffcc00",b:"rgba(255,204,0,.3)",t:"⚠️ ใกล้หมด"},exp:{bg:"rgba(255,51,51,.12)",c:"#ff3333",b:"rgba(255,51,51,.3)",t:"❌ หมดแล้ว"}};
-      const m=map[s]||map.ok;
-      return <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m.bg,color:m.c,border:`1px solid ${m.b}`,whiteSpace:"nowrap"}}>{m.t}</span>;
-    }
-
-    function ReportTab({reportDate,setReportDate,todaySales,todayIn,todayRev,transactions,products,warranties,exportAll}) {
-      const last7=Array.from({length:7},(_,i)=>{
-        const d=new Date(); d.setDate(d.getDate()-(6-i));
-        const ds=d.toISOString().slice(0,10);
-        const rev=transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0);
-        return {ds,rev,label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})};
-      });
+    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,doExport,setShowImport}) {
+      const last7=Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0),label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})}; });
       const maxRev=Math.max(...last7.map(d=>d.rev),1);
-      const expW=warranties.filter(w=>wStatus(w)==="exp");
-      const warnW=warranties.filter(w=>wStatus(w)==="warn");
+      const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
       return (
         <div style={{paddingTop:14}}>
-          <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)}
+          <input type="date" value={reportDate} onChange={e=>setRDate(e.target.value)}
             style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:12}}/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-            <Stat icon="💰" label="รายได้"   val={`฿${fmt(todayRev)}`}        color="#ff6b00" sm/>
-            <Stat icon="🛒" label="ขาย"      val={`${todaySales.length}`}       color="#00aaff" sm/>
-            <Stat icon="📥" label="รับสินค้า" val={`${todayIn.length}`}          color="#00cc66" sm/>
+            <Stat icon="💰" label="รายได้"    val={`฿${fmt(tRev)}`}     color="#ff6b00" sm/>
+            <Stat icon="🛒" label="ขาย"       val={`${tSales.length}`}   color="#00aaff" sm/>
+            <Stat icon="📥" label="รับสินค้า" val={`${tIn.length}`}      color="#00cc66" sm/>
           </div>
-
           <SecTitle>ยอดขาย 7 วันย้อนหลัง</SecTitle>
           <div style={{background:"#111",borderRadius:12,padding:14,marginBottom:14}}>
             <div style={{display:"flex",alignItems:"flex-end",gap:5,height:70}}>
@@ -633,28 +858,33 @@
               ))}
             </div>
           </div>
-
           <SecTitle>สรุปประกัน</SecTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-            <Stat icon="🛡️" label="ทั้งหมด"  val={`${warranties.length}`}    color="#00aaff" sm/>
-            <Stat icon="⚠️" label="ใกล้หมด"  val={`${warnW.length}`}         color="#ffcc00" sm/>
-            <Stat icon="❌" label="หมดแล้ว"   val={`${expW.length}`}          color="#ff3333" sm/>
+            <Stat icon="🛡️" label="ทั้งหมด" val={`${warranties.length}`} color="#00aaff" sm/>
+            <Stat icon="⚠️" label="ใกล้หมด" val={`${warnW.length}`}      color="#ffcc00" sm/>
+            <Stat icon="❌" label="หมดแล้ว" val={`${expW.length}`}        color="#ff3333" sm/>
           </div>
-
           <SecTitle>รายการขาย — {thDate(reportDate)}</SecTitle>
-          {todaySales.map(t=><TxRow key={t.id} tx={t}/>)}
-          {todaySales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
-
-          <div style={{marginTop:16}}>
-            <button onClick={exportAll} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-              📊 Export Excel ทั้งหมด (สต๊อก + ขาย + ประกัน)
+          {tSales.map(t=><TxRow key={t.id} tx={t}/>)}
+          {tSales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
+          <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
+            <SecTitle>จัดการข้อมูล</SecTitle>
+            <button onClick={doExport} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📊 Export Excel รวมทุกชีต (+ Template สำหรับ Import)
+            </button>
+            <button onClick={()=>setShowImport(true)} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00aaff44",background:"rgba(0,170,255,.08)",color:"#00aaff",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📂 Import ข้อมูลจาก Excel
             </button>
           </div>
         </div>
       );
     }
 
-    /* ═══ SHARED UI ═══════════════════════════════════════════════ */
+    /* ─── SHARED UI ───────────────────────────────────────────── */
+    function WBadge({s}) {
+      const m={ok:{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"},warn:{bg:"rgba(255,204,0,.1)",c:"#ffcc00",b:"rgba(255,204,0,.3)",t:"⚠️ ใกล้หมด"},exp:{bg:"rgba(255,51,51,.12)",c:"#ff3333",b:"rgba(255,51,51,.3)",t:"❌ หมดแล้ว"}}[s]||{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"};
+      return <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m.bg,color:m.c,border:`1px solid ${m.b}`,whiteSpace:"nowrap"}}>{m.t}</span>;
+    }
     function Modal({title,children,onClose}) {
       return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
         <div style={{background:"#111",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",border:"1px solid #2a2a2a"}}>
@@ -695,6 +925,7 @@
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</div>
             <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
+            {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>👤 {tx.createdBy}</div>}
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
