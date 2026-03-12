@@ -13,6 +13,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
@@ -40,11 +41,20 @@
     .irow-ok  { background:rgba(0,204,102,.06);  border-left:3px solid #00cc66; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
     .irow-upd { background:rgba(0,170,255,.06);  border-left:3px solid #00aaff; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
     .irow-err { background:rgba(255,51,51,.06);  border-left:3px solid #ff3333; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:12px; }
+    /* Barcode print */
+    @media print {
+      #barcode-print-zone { display: block !important; }
+    }
+    #barcode-print-zone { display: none; }
+    .bc-label { display: inline-block; text-align: center; border: 1px solid #ccc; padding: 6px 8px; margin: 4px; border-radius: 4px; background: #fff; page-break-inside: avoid; }
+    .bc-label svg { display: block; }
+    .bc-name { font-size: 9pt; font-weight: 700; color: #000; margin-top: 3px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
   <div id="app-root"></div>
   <div id="print-zone"></div>
+  <div id="barcode-print-zone"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -184,6 +194,35 @@
         XLSX.utils.book_append_sheet(wb,ws,"ประกัน");
         XLSX.writeFile(wb,"Template_นำเข้าประกัน.xlsx");
       }
+    }
+
+    /* ─── PRINT BARCODES ────────────────────────────────────────── */
+    function printBarcodes(items, shopName="BENZ ประดับยนต์") {
+      // items = [{code, name, qty}]
+      const zone = document.getElementById("barcode-print-zone");
+      // Build HTML with one label per qty
+      let html = `<div style="font-family:'Sarabun',sans-serif;padding:6mm;">`;
+      html += `<div style="font-size:11pt;font-weight:800;margin-bottom:6mm;color:#000">${shopName} — บาร์โค้ดสินค้า</div>`;
+      html += `<div style="display:flex;flex-wrap:wrap;gap:4mm;">`;
+      items.forEach(item => {
+        for (let i = 0; i < (item.qty||1); i++) {
+          html += `<div class="bc-label"><svg id="bc-${item.code}-${i}"></svg><div class="bc-name">${item.name}</div></div>`;
+        }
+      });
+      html += `</div></div>`;
+      zone.innerHTML = html;
+      // Render barcodes via JsBarcode
+      items.forEach(item => {
+        for (let i = 0; i < (item.qty||1); i++) {
+          try {
+            JsBarcode(`#bc-${item.code}-${i}`, item.code, {
+              format: "CODE128", width: 1.8, height: 40, displayValue: true,
+              fontSize: 11, fontOptions: "bold", margin: 4, background: "#fff", lineColor: "#000"
+            });
+          } catch(e) {}
+        }
+      });
+      setTimeout(() => { window.print(); zone.innerHTML = ""; }, 300);
     }
 
     /* ─── BACKUP / RESTORE ──────────────────────────────────────── */
@@ -443,6 +482,128 @@
                   style={{flex:1,padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
                 <button onClick={()=>manual.trim()&&onScan(manual.trim())} style={{padding:"10px 16px",borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>ค้นหา</button>
               </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       BARCODE MODAL
+    ══════════════════════════════════════════════════════════════ */
+    function BarcodeModal({products, shopName, onClose}) {
+      const [selected, setSelected] = useState({}); // {id: qty}
+      const [search, setSearch] = useState("");
+      const bcRefs = useRef({});
+
+      // render preview barcodes after selection changes
+      useEffect(() => {
+        Object.keys(selected).forEach(id => {
+          const p = products.find(x => x.id === parseInt(id));
+          if (!p) return;
+          const el = document.getElementById(`preview-bc-${id}`);
+          if (!el) return;
+          try {
+            JsBarcode(el, p.code, {
+              format:"CODE128", width:1.6, height:36, displayValue:true,
+              fontSize:10, margin:4, background:"transparent", lineColor:"#fff"
+            });
+          } catch(e){}
+        });
+      }, [selected, products]);
+
+      const toggle = id => {
+        setSelected(prev => {
+          const n = {...prev};
+          if (n[id]) delete n[id]; else n[id] = 1;
+          return n;
+        });
+      };
+      const setQty = (id, v) => setSelected(prev => ({...prev, [id]: Math.max(1, parseInt(v)||1)}));
+      const selectAll = () => { const n={}; filtered.forEach(p=>n[p.id]=1); setSelected(n); };
+      const clearAll  = () => setSelected({});
+
+      const filtered = products.filter(p =>
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.code.toLowerCase().includes(search.toLowerCase())
+      );
+      const selectedList = products.filter(p => selected[p.id]);
+      const totalLabels  = selectedList.reduce((s,p) => s + (selected[p.id]||1), 0);
+
+      const doPrint = () => {
+        if (!selectedList.length) return;
+        const items = selectedList.map(p => ({ code: p.code, name: p.name, qty: selected[p.id]||1 }));
+        printBarcodes(items, shopName);
+      };
+
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",zIndex:300,display:"flex",alignItems:"flex-end"}}>
+          <div style={{background:"#111",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"94vh",display:"flex",flexDirection:"column",border:"1px solid #2a2a2a"}}>
+            {/* Header */}
+            <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700}}>🏷️ พิมพ์บาร์โค้ดสินค้า</div>
+                {totalLabels>0&&<div style={{fontSize:11,color:"#ff9500",marginTop:2}}>เลือก {selectedList.length} รายการ · {totalLabels} ป้าย</div>}
+              </div>
+              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+
+            {/* Search + actions */}
+            <div style={{padding:"10px 16px 0",flexShrink:0}}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 ค้นหาสินค้า..."
+                style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:8}}/>
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <button onClick={selectAll} style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",fontSize:12,fontWeight:700,cursor:"pointer"}}>เลือกทั้งหมด</button>
+                <button onClick={clearAll}  style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #33333388",background:"#1a1a1a",color:"#666",fontSize:12,fontWeight:700,cursor:"pointer"}}>ล้างการเลือก</button>
+              </div>
+            </div>
+
+            {/* Product list */}
+            <div style={{flex:1,overflowY:"auto",padding:"0 16px 8px"}}>
+              {filtered.map(p => {
+                const isOn = !!selected[p.id];
+                return (
+                  <div key={p.id} style={{background:isOn?"#1a0a00":"#161616",border:`1px solid ${isOn?"#ff6b0066":"#222"}`,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {/* Checkbox */}
+                      <div onClick={()=>toggle(p.id)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${isOn?"#ff6b00":"#444"}`,background:isOn?"#ff6b00":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+                        {isOn&&<span style={{color:"#fff",fontSize:13,fontWeight:800}}>✓</span>}
+                      </div>
+                      <div style={{flex:1,cursor:"pointer"}} onClick={()=>toggle(p.id)}>
+                        <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
+                          <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
+                      </div>
+                      {/* Qty */}
+                      {isOn&&(
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                          <button onClick={()=>setQty(p.id,(selected[p.id]||1)-1)} style={{width:24,height:24,borderRadius:5,border:"1px solid #333",background:"#222",color:"#aaa",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                          <span style={{minWidth:22,textAlign:"center",fontWeight:700,color:"#ff9500",fontSize:14}}>{selected[p.id]||1}</span>
+                          <button onClick={()=>setQty(p.id,(selected[p.id]||1)+1)} style={{width:24,height:24,borderRadius:5,border:"1px solid #333",background:"#222",color:"#aaa",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+                          <span style={{fontSize:10,color:"#555"}}>ป้าย</span>
+                        </div>
+                      )}
+                    </div>
+                    {/* Barcode preview */}
+                    {isOn&&(
+                      <div style={{marginTop:10,background:"#0d0d0d",borderRadius:8,padding:"10px",textAlign:"center",border:"1px solid #222"}}>
+                        <svg id={`preview-bc-${p.id}`}></svg>
+                        <div style={{fontSize:9,color:"#555",marginTop:4}}>ตัวอย่างบาร์โค้ด</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filtered.length===0&&<div style={{color:"#333",fontSize:13,textAlign:"center",padding:"24px 0"}}>ไม่พบสินค้า</div>}
+            </div>
+
+            {/* Print button */}
+            <div style={{padding:"12px 16px 24px",borderTop:"1px solid #222",flexShrink:0}}>
+              <button onClick={doPrint} disabled={!selectedList.length}
+                style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:selectedList.length?"pointer":"not-allowed",background:selectedList.length?"linear-gradient(135deg,#ff6b00,#ff9500)":"#222",color:selectedList.length?"#fff":"#444",fontSize:14,fontWeight:700,boxShadow:selectedList.length?"0 4px 15px rgba(255,107,0,.35)":"none"}}>
+                🖨️ พิมพ์บาร์โค้ด {totalLabels>0?`(${totalLabels} ป้าย)`:""}
+              </button>
             </div>
           </div>
         </div>
@@ -730,6 +891,7 @@
       const [showImport,setShowImport]    = useState(false);
       const [showUsers,setShowUsers]      = useState(false);
       const [showBackup,setShowBackup]    = useState(false);
+      const [showBarcode,setShowBarcode]  = useState(false);
 
       const login  = u => { setCU(u); try{sessionStorage.setItem("benz_sess",JSON.stringify(u));}catch{} };
       const logout = () => { if(!window.confirm("ต้องการออกจากระบบ?"))return; setCU(null); try{sessionStorage.removeItem("benz_sess");}catch{} setTab("หน้าหลัก"); };
@@ -819,6 +981,7 @@
           {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
           {showUsers&&<UserManagement users={users} setUsers={setUsers} currentUser={cu} onClose={()=>setShowUsers(false)}/>}
           {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={doBackup} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
+          {showBarcode&&<BarcodeModal products={products} shopName={shopName} onClose={()=>setShowBarcode(false)}/>}
 
           {/* HEADER */}
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
@@ -842,7 +1005,7 @@
 
           <div style={{padding:"0 16px"}}>
             {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
-            {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)}/>}
+            {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
             {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopName)} setScanner={setScanner}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
             {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
@@ -920,6 +1083,8 @@
               <Inp label="สต๊อกขั้นต่ำ" type="number" value={editP.minStock} onChange={v=>setEditP(p=>({...p,minStock:parseInt(v)}))}/>
               <Inp label="หน่วย" value={editP.unit} onChange={v=>setEditP(p=>({...p,unit:v}))}/>
               <OBtn onClick={submitEdit}>✅ บันทึกการแก้ไข</OBtn>
+              <button onClick={()=>printBarcodes([{code:editP.code,name:editP.name,qty:1}],shopName)}
+                style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #ffcc0044",background:"rgba(255,204,0,.06)",color:"#ffcc00",fontSize:13,fontWeight:600,cursor:"pointer"}}>🏷️ พิมพ์บาร์โค้ดสินค้านี้</button>
               <button onClick={()=>delP(editP.id)} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #cc2222",background:"#1a0000",color:"#ff6666",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑️ ลบสินค้านี้</button>
             </Modal>
           )}
@@ -988,7 +1153,7 @@
       );
     }
 
-    function StockTab({products,searchQ,setSearchQ,setEditP,lowStock,openAdd,openScanner,setShowImport,doExport}) {
+    function StockTab({products,searchQ,setSearchQ,setEditP,lowStock,openAdd,openScanner,setShowImport,doExport,setShowBarcode}) {
       return (
         <div style={{paddingTop:14}}>
           <div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -996,8 +1161,9 @@
               style={{flex:1,padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
             <button onClick={openScanner} style={{padding:"10px 14px",borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",cursor:"pointer",fontSize:18}} title="สแกนค้นหา">📷</button>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
             <button onClick={openAdd} style={{padding:"9px 0",borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
+            <button onClick={()=>setShowBarcode(true)} style={{padding:"9px 0",borderRadius:8,border:"1px solid #ffcc0044",background:"rgba(255,204,0,.08)",color:"#ffcc00",fontSize:12,fontWeight:700,cursor:"pointer"}}>🏷️ พิมพ์บาร์โค้ด</button>
             <button onClick={()=>setShowImport(true)} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00aaff44",background:"rgba(0,170,255,.08)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer"}}>📂 Import</button>
             <button onClick={doExport} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:12,fontWeight:700,cursor:"pointer"}}>📊 Export</button>
           </div>
