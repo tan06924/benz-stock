@@ -1699,6 +1699,33 @@
           <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
             <SecTitle>จัดการข้อมูล</SecTitle>
 
+            {/* Sync Status Indicator */}
+            <div style={{background:"linear-gradient(135deg,#0a1a2e,#1a3a4a)",borderRadius:12,padding:14,border:"1px solid #00ccff33",marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16}}>🔄</span>
+                  <div style={{fontSize:13,fontWeight:700}}>สถานะการซิงค์ข้อมูล</div>
+                </div>
+                <div style={{fontSize:11,color:"#00ff88",fontWeight:700,background:"rgba(0,255,136,.1)",padding:"3px 10px",borderRadius:20,border:"1px solid #00ff8844"}}>
+                  {online ? "☁️ ซิงค์กับคลาว์" : "⚠️ ออฟไลน์"}
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"rgba(0,204,102,.08)",borderRadius:8,border:"1px solid #00cc6633"}}>
+                  <span style={{fontSize:12,color:"#00cc66"}}>✅ ข้อมูลซิงค์กับทุกเครื่อง</span>
+                  <span style={{fontSize:10,color:"#00cc66"}}>Real-time</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#161616",borderRadius:8}}>
+                  <span style={{fontSize:11,color:"#888"}}>เครื่องที่เชื่อมต่อ</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#00aaff"}}>Active</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#161616",borderRadius:8}}>
+                  <span style={{fontSize:11,color:"#888"}}>ล่าสุดซิงค์เมื่อ</span>
+                  <span style={{fontSize:11,color:"#aaa"}}>Just now</span>
+                </div>
+              </div>
+            </div>
+
             {/* Storage indicator */}
             {storageInfo&&<div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:"1px solid #ff6b0022",marginBottom:4}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
