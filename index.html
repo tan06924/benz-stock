@@ -186,6 +186,47 @@
       }
     }
 
+    /* ─── BACKUP / RESTORE ──────────────────────────────────────── */
+    const BACKUP_KEYS = ["benz_products","benz_transactions","benz_warranties","benz_users","benz_shopname"];
+
+    function doBackup() {
+      const data = {};
+      BACKUP_KEYS.forEach(k => {
+        const v = localStorage.getItem(k);
+        if (v) data[k] = JSON.parse(v);
+      });
+      data._backupDate = new Date().toISOString();
+      data._version = "1.0";
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `BENZ_Backup_${today()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function doRestore(file, callbacks) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const data = JSON.parse(e.target.result);
+          // validate
+          if (!data.benz_products) throw new Error("ไฟล์ไม่ถูกต้อง ไม่พบข้อมูลสินค้า");
+          const info = {
+            products:     (data.benz_products||[]).length,
+            transactions: (data.benz_transactions||[]).length,
+            warranties:   (data.benz_warranties||[]).length,
+            users:        (data.benz_users||[]).length,
+            backupDate:   data._backupDate ? new Date(data._backupDate).toLocaleString("th-TH") : "ไม่ทราบ",
+          };
+          callbacks.onPreview(data, info);
+        } catch(err) {
+          alert("❌ อ่านไฟล์ Backup ไม่ได้: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
     /* ─── EXCEL IMPORT PARSER ───────────────────────────────────── */
     function parseXLSX(file) {
       return new Promise((res,rej)=>{
@@ -412,13 +453,266 @@
     }
 
     /* ══════════════════════════════════════════════════════════════
+       BACKUP / RESTORE MODAL
+    ══════════════════════════════════════════════════════════════ */
+    function BackupModal({onClose,onBackup,setProducts,setTxs,setWarranties,setUsers,toast_}) {
+      const [step,setStep]       = useState("main"); // main | preview | done
+      const [preview,setPreview] = useState(null);
+      const [rawData,setRawData] = useState(null);
+      const fileRef = useRef();
+
+      const handleFile = file => {
+        if (!file) return;
+        doRestore(file, {
+          onPreview: (data, info) => { setRawData(data); setPreview(info); setStep("preview"); }
+        });
+      };
+
+      const confirmRestore = () => {
+        if (!rawData) return;
+        if (rawData.benz_products)     setProducts(rawData.benz_products);
+        if (rawData.benz_transactions) setTxs(rawData.benz_transactions);
+        if (rawData.benz_warranties)   setWarranties(rawData.benz_warranties);
+        if (rawData.benz_users)        setUsers(rawData.benz_users);
+        setStep("done");
+        toast_("✅ Restore ข้อมูลสำเร็จ!");
+      };
+
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",zIndex:300,display:"flex",alignItems:"flex-end"}}>
+          <div style={{background:"#111",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"88vh",display:"flex",flexDirection:"column",border:"1px solid #2a2a2a"}}>
+            <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div style={{fontSize:15,fontWeight:700}}>💾 Backup & Restore ข้อมูล</div>
+              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px",display:"flex",flexDirection:"column",gap:12}}>
+
+              {step==="main"&&<>
+                {/* Backup section */}
+                <div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:"1px solid #1a3a1a"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#00cc66",marginBottom:6}}>💾 สำรองข้อมูล (Backup)</div>
+                  <div style={{fontSize:12,color:"#555",marginBottom:12,lineHeight:1.6}}>
+                    บันทึกข้อมูลทั้งหมดเป็นไฟล์ .json ไว้ที่เครื่อง<br/>
+                    ได้แก่ สต๊อกสินค้า, ประวัติการขาย, ประกัน, ผู้ใช้งาน
+                  </div>
+                  <button onClick={()=>{onBackup();}} style={{width:"100%",padding:13,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#1a4a1a,#2a6a2a)",color:"#00cc66",fontSize:14,fontWeight:700,border:"1px solid #00cc6644",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                    ⬇️ ดาวน์โหลด Backup ทันที
+                  </button>
+                  <div style={{fontSize:10,color:"#333",marginTop:8,textAlign:"center"}}>แนะนำให้ Backup ทุกวันหรือก่อนอัปเดตไฟล์</div>
+                </div>
+
+                {/* Restore section */}
+                <div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:"1px solid #1a1a3a"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#00aaff",marginBottom:6}}>📂 กู้คืนข้อมูล (Restore)</div>
+                  <div style={{fontSize:12,color:"#555",marginBottom:12,lineHeight:1.6}}>
+                    โหลดไฟล์ Backup .json เพื่อกู้ข้อมูลกลับมา<br/>
+                    <span style={{color:"#ff6666"}}>⚠️ ข้อมูลปัจจุบันจะถูกแทนที่ทั้งหมด</span>
+                  </div>
+                  <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+                  <button onClick={()=>fileRef.current.click()} style={{width:"100%",padding:13,borderRadius:10,border:"2px dashed #00aaff44",background:"rgba(0,170,255,.06)",color:"#00aaff",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                    📁 เลือกไฟล์ Backup (.json)
+                  </button>
+                </div>
+
+                <div style={{background:"rgba(255,107,0,.06)",border:"1px solid #ff6b0033",borderRadius:10,padding:12,fontSize:11,color:"#888",lineHeight:1.7}}>
+                  💡 <strong style={{color:"#ff9500"}}>วิธีป้องกันข้อมูลหาย:</strong><br/>
+                  1. Backup ทุกครั้งก่อนอัปเดตไฟล์ index.html<br/>
+                  2. เก็บไฟล์ .json ไว้ใน Google Drive / Line<br/>
+                  3. หากข้อมูลหาย ให้ Restore จากไฟล์ล่าสุด
+                </div>
+              </>}
+
+              {step==="preview"&&preview&&<>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700}}>ตรวจสอบข้อมูลก่อน Restore</div>
+                  <button onClick={()=>setStep("main")} style={{background:"none",border:"none",color:"#ff6b00",fontSize:12,cursor:"pointer"}}>← กลับ</button>
+                </div>
+                <div style={{background:"#0d0d0d",borderRadius:10,padding:14,border:"1px solid #2a2a2a"}}>
+                  <div style={{fontSize:11,color:"#555",marginBottom:10}}>📅 ไฟล์ Backup วันที่: <span style={{color:"#aaa"}}>{preview.backupDate}</span></div>
+                  {[
+                    ["📦 สินค้า",  preview.products,     "#ff6b00"],
+                    ["🔄 รายการขาย/รับ", preview.transactions, "#00aaff"],
+                    ["🛡️ ประกัน",  preview.warranties,   "#00cc66"],
+                    ["👤 ผู้ใช้",  preview.users,        "#aa66ff"],
+                  ].map(([l,n,c])=>(
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #1a1a1a",alignItems:"center"}}>
+                      <span style={{fontSize:13,color:"#aaa"}}>{l}</span>
+                      <span style={{fontSize:15,fontWeight:800,color:c}}>{n} รายการ</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{background:"rgba(255,51,51,.08)",border:"1px solid #ff333344",borderRadius:10,padding:12,fontSize:12,color:"#ff8888"}}>
+                  ⚠️ การ Restore จะ <strong>แทนที่ข้อมูลทั้งหมด</strong>ที่มีอยู่ในระบบ ด้วยข้อมูลจากไฟล์ Backup นี้
+                </div>
+                <button onClick={confirmRestore} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700}}>
+                  ✅ ยืนยัน Restore ข้อมูลทั้งหมด
+                </button>
+              </>}
+
+              {step==="done"&&<>
+                <div style={{textAlign:"center",padding:"28px 0"}}>
+                  <div style={{fontSize:52,marginBottom:12}}>🎉</div>
+                  <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Restore สำเร็จ!</div>
+                  <div style={{fontSize:13,color:"#888"}}>ข้อมูลทั้งหมดถูกกู้คืนแล้ว</div>
+                </div>
+                <button onClick={onClose} style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700}}>✓ ปิด</button>
+              </>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       USER MANAGEMENT
+    ══════════════════════════════════════════════════════════════ */
+    function UserManagement({users,setUsers,currentUser,onClose}) {
+      const [form,setForm]     = useState({role:"staff"});
+      const [editId,setEditId] = useState(null);
+      const [err,setErr]       = useState("");
+      const [showPw,setShowPw] = useState({});
+
+      const reset = () => { setForm({role:"staff"}); setEditId(null); setErr(""); };
+
+      const save = () => {
+        const uname = (form.username||"").trim();
+        const pw    = (form.password||"").trim();
+        const name  = (form.name||"").trim();
+        if(!uname||!pw||!name) { setErr("กรุณากรอกข้อมูลให้ครบ"); return; }
+        if(uname.length < 3)   { setErr("Username ต้องมีอย่างน้อย 3 ตัวอักษร"); return; }
+        if(pw.length < 4)      { setErr("Password ต้องมีอย่างน้อย 4 ตัวอักษร"); return; }
+        // check duplicate username (except self when editing)
+        const dup = users.find(u=>u.username===uname && u.id!==editId);
+        if(dup) { setErr("Username นี้มีอยู่แล้ว"); return; }
+        if(editId) {
+          setUsers(prev=>prev.map(u=>u.id===editId?{...u,username:uname,password:pw,name,role:form.role||"staff"}:u));
+        } else {
+          setUsers(prev=>[...prev,{id:Date.now(),username:uname,password:pw,name,role:form.role||"staff"}]);
+        }
+        reset();
+      };
+
+      const del = id => {
+        if(id===currentUser.id) { alert("ไม่สามารถลบบัญชีของตัวเองได้"); return; }
+        if(!window.confirm("ลบผู้ใช้นี้?")) return;
+        setUsers(prev=>prev.filter(u=>u.id!==id));
+        if(editId===id) reset();
+      };
+
+      const startEdit = u => {
+        setEditId(u.id);
+        setForm({username:u.username,password:u.password,name:u.name,role:u.role});
+        setErr("");
+      };
+
+      const roleColor = r => r==="admin"?"#ff9500":"#00aaff";
+      const roleLabel = r => r==="admin"?"👑 Admin":"👤 Staff";
+
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",zIndex:300,display:"flex",alignItems:"flex-end"}}>
+          <div style={{background:"#111",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"92vh",display:"flex",flexDirection:"column",border:"1px solid #2a2a2a"}}>
+            {/* Header */}
+            <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div style={{fontSize:15,fontWeight:700}}>⚙️ จัดการผู้ใช้งาน</div>
+              <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:"16px 20px 24px",display:"flex",flexDirection:"column",gap:14}}>
+
+              {/* User list */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#ff6b00",letterSpacing:1,marginBottom:8}}>รายชื่อผู้ใช้งาน ({users.length})</div>
+                {users.map(u=>(
+                  <div key={u.id} style={{background:editId===u.id?"#1a0a00":"#161616",border:`1px solid ${editId===u.id?"#ff6b0066":"#2a2a2a"}`,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
+                        <span style={{fontSize:13,fontWeight:700}}>{u.name}</span>
+                        {u.id===currentUser.id&&<span style={{fontSize:9,background:"rgba(255,107,0,.2)",color:"#ff9500",padding:"1px 6px",borderRadius:4,border:"1px solid #ff6b0044"}}>ฉัน</span>}
+                      </div>
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <span style={{fontSize:11,fontFamily:"monospace",color:"#aaa"}}>@{u.username}</span>
+                        <span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:`${roleColor(u.role)}18`,color:roleColor(u.role),border:`1px solid ${roleColor(u.role)}44`}}>{roleLabel(u.role)}</span>
+                      </div>
+                      <div style={{fontSize:10,color:"#444",marginTop:3,display:"flex",alignItems:"center",gap:4}}>
+                        🔑 Password: <span style={{fontFamily:"monospace",letterSpacing:2}}>{showPw[u.id]?u.password:"•".repeat(u.password.length)}</span>
+                        <button onClick={()=>setShowPw(p=>({...p,[u.id]:!p[u.id]}))} style={{background:"none",border:"none",color:"#555",cursor:"pointer",fontSize:11,padding:0}}>{showPw[u.id]?"🙈":"👁️"}</button>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      <button onClick={()=>startEdit(u)} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #333",background:"#222",color:"#aaa",cursor:"pointer",fontSize:12}}>✏️</button>
+                      <button onClick={()=>del(u.id)} disabled={u.id===currentUser.id}
+                        style={{padding:"6px 10px",borderRadius:7,border:"1px solid #cc2222",background:"#1a0000",color:u.id===currentUser.id?"#444":"#ff6666",cursor:u.id===currentUser.id?"not-allowed":"pointer",fontSize:12}}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Form */}
+              <div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:`1px solid ${editId?"#ff6b0044":"#1a1a1a"}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:editId?"#ff9500":"#aaa",marginBottom:12}}>
+                  {editId?"✏️ แก้ไขผู้ใช้":"➕ เพิ่มผู้ใช้ใหม่"}
+                  {editId&&<button onClick={reset} style={{marginLeft:8,fontSize:10,background:"none",border:"none",color:"#666",cursor:"pointer",textDecoration:"underline"}}>ยกเลิก</button>}
+                </div>
+
+                {err&&<div style={{background:"rgba(255,51,51,.12)",border:"1px solid #ff3333",borderRadius:8,padding:"7px 10px",fontSize:12,color:"#ff6666",marginBottom:10}}>⚠️ {err}</div>}
+
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <div>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ชื่อที่แสดง *</label>
+                    <input value={form.name||""} onChange={e=>{setForm(f=>({...f,name:e.target.value}));setErr("");}} placeholder="เช่น นายสมชาย ใจดี"
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                  </div>
+
+                  <div>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>Username *</label>
+                    <input value={form.username||""} onChange={e=>{setForm(f=>({...f,username:e.target.value.toLowerCase().replace(/\s/g,"")}));setErr("");}} placeholder="เช่น somchai (ตัวเล็กเท่านั้น)"
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,fontFamily:"monospace"}}/>
+                  </div>
+
+                  <div>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>Password * <span style={{color:"#444"}}>(อย่างน้อย 4 ตัวอักษร)</span></label>
+                    <input value={form.password||""} onChange={e=>{setForm(f=>({...f,password:e.target.value}));setErr("");}} placeholder="กรอก Password"
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                  </div>
+
+                  <div>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>สิทธิ์การใช้งาน</label>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[["staff","👤 Staff","ใช้งานทั่วไป","#00aaff"],["admin","👑 Admin","จัดการระบบ","#ff9500"]].map(([v,l,sub,c])=>(
+                        <button key={v} onClick={()=>setForm(f=>({...f,role:v}))}
+                          style={{padding:"10px 8px",borderRadius:10,border:`2px solid ${form.role===v?c:"#2a2a2a"}`,background:form.role===v?`${c}15`:"#161616",cursor:"pointer",textAlign:"center"}}>
+                          <div style={{fontSize:14,fontWeight:700,color:form.role===v?c:"#666"}}>{l}</div>
+                          <div style={{fontSize:10,color:"#444",marginTop:2}}>{sub}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button onClick={save}
+                    style={{width:"100%",padding:13,borderRadius:10,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#ff6b00,#ff9500)",color:"#fff",fontSize:14,fontWeight:700,boxShadow:"0 4px 15px rgba(255,107,0,.35)"}}>
+                    {editId?"✅ บันทึกการแก้ไข":"✅ สร้างผู้ใช้ใหม่"}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{fontSize:10,color:"#333",textAlign:"center",padding:"4px 0"}}>
+                เฉพาะ Admin เท่านั้นที่เข้าถึงหน้านี้ได้
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
        APP
     ══════════════════════════════════════════════════════════════ */
     const TABS=["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","รายงาน"];
     const ICONS={"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
 
     function App() {
-      const [users]                       = usePersist("benz_users",        DEF_USERS);
+      const [users,setUsers]              = usePersist("benz_users",        DEF_USERS);
       const [cu,setCU]                    = useState(()=>{ try{const s=sessionStorage.getItem("benz_sess");return s?JSON.parse(s):null;}catch{return null;} });
       const [tab,setTab]                  = useState("หน้าหลัก");
       const [products,setProducts]        = usePersist("benz_products",     DEF_PRODUCTS);
@@ -437,6 +731,8 @@
       const [scanner,setScanner]          = useState(null); // null | "in" | "out" | "stock"
       const [scanRes,setScanRes]          = useState(null);
       const [showImport,setShowImport]    = useState(false);
+      const [showUsers,setShowUsers]      = useState(false);
+      const [showBackup,setShowBackup]    = useState(false);
 
       const login  = u => { setCU(u); try{sessionStorage.setItem("benz_sess",JSON.stringify(u));}catch{} };
       const logout = () => { if(!window.confirm("ต้องการออกจากระบบ?"))return; setCU(null); try{sessionStorage.removeItem("benz_sess");}catch{} setTab("หน้าหลัก"); };
@@ -524,6 +820,8 @@
         <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",maxWidth:440,margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0"}}>
           {scanner&&<BarcodeScanner title={scanner==="in"?"สแกนรับเข้า":scanner==="out"?"สแกนขายออก":"สแกนค้นหา"} onScan={onScan} onClose={()=>setScanner(null)}/>}
           {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
+          {showUsers&&<UserManagement users={users} setUsers={setUsers} currentUser={cu} onClose={()=>setShowUsers(false)}/>}
+          {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={doBackup} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
 
           {/* HEADER */}
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
@@ -531,6 +829,7 @@
               <div><div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:20,fontWeight:800,lineHeight:1.2}}>{shopName}</div></div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:9,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
+                {cu.role==="admin"&&<button onClick={()=>setShowUsers(true)} title="จัดการผู้ใช้" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙️</button>}
                 <button onClick={logout} title="ออกจากระบบ" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
               </div>
             </div>
@@ -549,7 +848,7 @@
             {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)}/>}
             {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopName)} setScanner={setScanner}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
-            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport}/>}
+            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
           </div>
 
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
@@ -834,7 +1133,7 @@
       );
     }
 
-    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,doExport,setShowImport}) {
+    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,doExport,setShowImport,setShowBackup}) {
       const last7=Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0),label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})}; });
       const maxRev=Math.max(...last7.map(d=>d.rev),1);
       const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
@@ -874,6 +1173,10 @@
             </button>
             <button onClick={()=>setShowImport(true)} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00aaff44",background:"rgba(0,170,255,.08)",color:"#00aaff",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
               📂 Import ข้อมูลจาก Excel
+            </button>
+            <div style={{height:1,background:"#1a1a1a",margin:"4px 0"}}/>
+            <button onClick={()=>setShowBackup(true)} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #ffcc0044",background:"rgba(255,204,0,.06)",color:"#ffcc00",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              💾 Backup / Restore ข้อมูลทั้งหมด
             </button>
           </div>
         </div>
