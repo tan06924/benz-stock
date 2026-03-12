@@ -14,6 +14,22 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script>
+    const _fbConfig = {
+      apiKey: "AIzaSyDnjPgN-qBMoJs636Jf7ZysDeH_xEaetxk",
+      authDomain: "benz-stock.firebaseapp.com",
+      projectId: "benz-stock",
+      storageBucket: "benz-stock.firebasestorage.app",
+      messagingSenderId: "950987891419",
+      appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
+    };
+    firebase.initializeApp(_fbConfig);
+    const _db = firebase.firestore();
+    _db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
@@ -110,12 +126,46 @@
       return `${prefix}${String(next).padStart(3,"0")}`;
     };
 
-    /* ─── PERSIST HOOK ──────────────────────────────────────────── */
-    function usePersist(key, def) {
-      const [val,setVal] = useState(()=>{ try{const s=localStorage.getItem(key);return s?JSON.parse(s):def;}catch{return def;} });
-      useEffect(()=>{ try{localStorage.setItem(key,JSON.stringify(val));}catch{} },[key,val]);
-      return [val,setVal];
+    /* ─── FIRESTORE HOOK (แทน localStorage) ────────────────────── */
+    function useFirestore(key, def) {
+      const [val, setValState]  = useState(def);
+      const [loaded, setLoaded] = useState(false);
+      const valRef              = useRef(def);
+      const isFirst             = useRef(true);
+
+      useEffect(() => {
+        const ref = _db.collection("benz").doc(key);
+        const unsub = ref.onSnapshot(snap => {
+          if (snap && snap.exists && snap.data() && snap.data().v !== undefined) {
+            // Firebase มีข้อมูล → ใช้ข้อมูลจาก Firebase เสมอ
+            valRef.current = snap.data().v;
+            setValState(snap.data().v);
+          } else if (isFirst.current) {
+            // ครั้งแรกที่โหลด และ doc ยังไม่มี → ใช้ค่า def แต่ไม่เขียนทับ
+            valRef.current = def;
+            setValState(def);
+          }
+          isFirst.current = false;
+          setLoaded(true);
+        }, err => {
+          console.warn("Firestore error:", key, err);
+          setLoaded(true);
+        });
+        return unsub;
+      }, [key]);
+
+      const setVal = (updater) => {
+        const next = typeof updater === "function" ? updater(valRef.current) : updater;
+        valRef.current = next;
+        setValState(next);
+        _db.collection("benz").doc(key).set({ v: next }).catch(e => console.error("Save error:", key, e));
+      };
+
+      return [val, setVal, loaded];
     }
+
+    /* ─── compat shim ─────────────────────────────────────────── */
+    const usePersist = useFirestore;
 
     /* ─── PRINT ─────────────────────────────────────────────────── */
     function printReceipt(tx,shopName="BENZ ประดับยนต์") {
@@ -228,15 +278,16 @@
     /* ─── BACKUP / RESTORE ──────────────────────────────────────── */
     const BACKUP_KEYS = ["benz_products","benz_transactions","benz_warranties","benz_users","benz_shopname"];
 
-    function doBackup() {
-      const data = {};
-      BACKUP_KEYS.forEach(k => {
-        const v = localStorage.getItem(k);
-        if (v) data[k] = JSON.parse(v);
-      });
-      data._backupDate = new Date().toISOString();
-      data._version = "1.0";
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+    function doBackup(data) {
+      const out = {
+        benz_products:     data.products     || [],
+        benz_transactions: data.transactions || [],
+        benz_warranties:   data.warranties   || [],
+        benz_users:        data.users        || [],
+        _backupDate: new Date().toISOString(),
+        _version: "2.0-firebase"
+      };
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type:"application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `BENZ_Backup_${today()}.json`;
@@ -880,28 +931,49 @@
     const ICONS={"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
 
     function App() {
-      const [users,setUsers]              = usePersist("benz_users",        DEF_USERS);
-      const [cu,setCU]                    = useState(()=>{ try{const s=sessionStorage.getItem("benz_sess");return s?JSON.parse(s):null;}catch{return null;} });
-      const [tab,setTab]                  = useState("หน้าหลัก");
-      const [products,setProducts]        = usePersist("benz_products",     DEF_PRODUCTS);
-      const [transactions,setTxs]         = usePersist("benz_transactions", DEF_TX);
-      const [warranties,setWarranties]    = usePersist("benz_warranties",   DEF_WARRANTIES);
-      const [shopName]                    = usePersist("benz_shopname",     "BENZ ประดับยนต์");
-      const [modal,setModal]              = useState(null);
-      const [form,setForm]                = useState({});
-      const [editP,setEditP]              = useState(null);
-      const [searchQ,setSearchQ]          = useState("");
-      const [wSearchQ,setWSearchQ]        = useState("");
-      const [reportDate,setRDate]         = useState(today());
-      const [toast,setToast]              = useState(null);
-      const [lastRcp,setLastRcp]          = useState(null);
-      const [wFilter,setWFilter]          = useState("all");
-      const [scanner,setScanner]          = useState(null); // null | "in" | "out" | "stock"
-      const [scanRes,setScanRes]          = useState(null);
-      const [showImport,setShowImport]    = useState(false);
-      const [showUsers,setShowUsers]      = useState(false);
-      const [showBackup,setShowBackup]    = useState(false);
-      const [showBarcode,setShowBarcode]  = useState(false);
+      const [users,setUsers,usersLoaded]          = useFirestore("users",        DEF_USERS);
+      const [cu,setCU]                            = useState(()=>{ try{const s=sessionStorage.getItem("benz_sess");return s?JSON.parse(s):null;}catch{return null;} });
+      const [tab,setTab]                          = useState("หน้าหลัก");
+      const [products,setProducts,prodLoaded]     = useFirestore("products",     []);
+      const [transactions,setTxs,txLoaded]        = useFirestore("transactions", []);
+      const [warranties,setWarranties,wLoaded]    = useFirestore("warranties",   []);
+      const [shopName]                            = useFirestore("shopname",     "BENZ ประดับยนต์");
+      const [modal,setModal]                      = useState(null);
+      const [form,setForm]                        = useState({});
+      const [editP,setEditP]                      = useState(null);
+      const [searchQ,setSearchQ]                  = useState("");
+      const [wSearchQ,setWSearchQ]                = useState("");
+      const [reportDate,setRDate]                 = useState(today());
+      const [toast,setToast]                      = useState(null);
+      const [lastRcp,setLastRcp]                  = useState(null);
+      const [wFilter,setWFilter]                  = useState("all");
+      const [scanner,setScanner]                  = useState(null);
+      const [scanRes,setScanRes]                  = useState(null);
+      const [showImport,setShowImport]            = useState(false);
+      const [showUsers,setShowUsers]              = useState(false);
+      const [showBackup,setShowBackup]            = useState(false);
+      const [showBarcode,setShowBarcode]          = useState(false);
+
+      const [online, setOnline] = useState(navigator.onLine);
+      useEffect(()=>{
+        const on=()=>setOnline(true), off=()=>setOnline(false);
+        window.addEventListener("online",on); window.addEventListener("offline",off);
+        return()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); };
+      },[]);
+
+      const allLoaded = prodLoaded && txLoaded && wLoaded && usersLoaded;
+
+      // Loading screen
+      if (!allLoaded) return (
+        <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#0d0d0d",gap:16}}>
+          <div className="logo-pulse" style={{width:70,height:70,borderRadius:"50%",background:"linear-gradient(135deg,#ff6b00,#ff9500)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34}}>🚗</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>BENZ ประดับยนต์</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",color:"#ff9500",fontSize:13}}>
+            <span className="spin">🔄</span> กำลังโหลดข้อมูลจาก Cloud...
+          </div>
+          <div style={{fontSize:11,color:"#333"}}>Firebase Firestore</div>
+        </div>
+      );
 
       const login  = u => { setCU(u); try{sessionStorage.setItem("benz_sess",JSON.stringify(u));}catch{} };
       const logout = () => { if(!window.confirm("ต้องการออกจากระบบ?"))return; setCU(null); try{sessionStorage.removeItem("benz_sess");}catch{} setTab("หน้าหลัก"); };
@@ -1003,17 +1075,18 @@
           {scanner&&<BarcodeScanner title={scanner==="in"?"สแกนรับเข้า":scanner==="out"?"สแกนขายออก":"สแกนค้นหา"} onScan={onScan} onClose={()=>setScanner(null)}/>}
           {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
           {showUsers&&<UserManagement users={users} setUsers={setUsers} currentUser={cu} onClose={()=>setShowUsers(false)}/>}
-          {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={doBackup} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
+          {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={()=>doBackup({products,transactions,warranties,users})} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
           {showBarcode&&<BarcodeModal products={products} shopName={shopName} onClose={()=>setShowBarcode(false)}/>}
 
           {/* HEADER */}
           <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div><div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:20,fontWeight:800,lineHeight:1.2}}>{shopName}</div></div>
+              <div><div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:20,fontWeight:800,lineHeight:1.2}}>{shopName}</div><div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}><div style={{width:6,height:6,borderRadius:"50%",background:online?"#00cc66":"#ff3333"}}></div><div style={{fontSize:9,color:online?"#00cc66":"#ff6666"}}>{online?"☁️ Firebase Sync":"⚠️ ออฟไลน์"}</div></div></div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:9,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
                 {cu.role==="admin"&&<button onClick={()=>setShowUsers(true)} title="จัดการผู้ใช้" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙️</button>}
                 <button onClick={logout} title="ออกจากระบบ" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
+              </div>
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:lowStock.length||expW.length||warnW.length?8:0}}>
@@ -1031,7 +1104,7 @@
             {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
             {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopName)} setScanner={setScanner}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
-            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
+            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
           </div>
 
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
@@ -1319,10 +1392,34 @@
       );
     }
 
-    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,doExport,setShowImport,setShowBackup}) {
+    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,users,doExport,setShowImport,setShowBackup}) {
       const last7=Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0),label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})}; });
       const maxRev=Math.max(...last7.map(d=>d.rev),1);
       const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
+
+      // Firestore info
+      const storageInfo = (() => {
+        try {
+          const toBytes = obj => new Blob([JSON.stringify(obj)]).size;
+          const pBytes  = toBytes(products);
+          const tBytes  = toBytes(transactions);
+          const wBytes  = toBytes(warranties);
+          const uBytes  = toBytes(users||[]);
+          const used    = pBytes + tBytes + wBytes + uBytes;
+          const LIMIT   = 1*1024*1024; // Firestore doc limit 1MB per doc
+          const pct     = Math.min(100,(used/LIMIT)*100);
+          const color   = pct>80?"#ff3333":pct>50?"#ffcc00":"#00cc66";
+          const fmtB    = b => b>1024*1024?`${(b/1024/1024).toFixed(2)} MB`:b>1024?`${(b/1024).toFixed(1)} KB`:`${b} B`;
+          return { used, limit:LIMIT, pct, color, fmtB,
+            breakdown:[
+              {label:"📦 สินค้า",bytes:pBytes},
+              {label:"🔄 ประวัติขาย/รับ",bytes:tBytes},
+              {label:"🛡️ ประกัน",bytes:wBytes},
+              {label:"👤 ผู้ใช้",bytes:uBytes},
+            ]
+          };
+        } catch { return null; }
+      })();
       return (
         <div style={{paddingTop:14}}>
           <input type="date" value={reportDate} onChange={e=>setRDate(e.target.value)}
@@ -1354,6 +1451,42 @@
           {tSales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
           <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
             <SecTitle>จัดการข้อมูล</SecTitle>
+
+            {/* Storage indicator */}
+            {storageInfo&&<div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:`1px solid ${storageInfo.color}33`,marginBottom:4}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:13,fontWeight:700}}>☁️ ขนาดข้อมูล (Firebase)</div>
+                <div style={{fontSize:11,fontWeight:800,color:storageInfo.color}}>
+                  {storageInfo.pct.toFixed(1)}%
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div style={{height:8,background:"#222",borderRadius:6,overflow:"hidden",marginBottom:8}}>
+                <div style={{height:"100%",width:`${storageInfo.pct}%`,background:storageInfo.pct>80?"linear-gradient(90deg,#ff6b00,#ff3333)":storageInfo.pct>50?"#ffcc00":"#00cc66",borderRadius:6,transition:"width .5s"}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:10}}>
+                <span>ใช้ไป <strong style={{color:storageInfo.color}}>{storageInfo.fmtB(storageInfo.used)}</strong></span>
+                <span>เหลือ <strong style={{color:"#aaa"}}>{storageInfo.fmtB(storageInfo.limit-storageInfo.used)}</strong> / {storageInfo.fmtB(storageInfo.limit)} ต่อ doc</span>
+              </div>
+              {/* Breakdown */}
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {storageInfo.breakdown.map(item=>{
+                  const pct2 = (item.bytes/storageInfo.limit)*100;
+                  return (
+                    <div key={item.label} style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{width:90,fontSize:11,color:"#555",flexShrink:0}}>{item.label}</div>
+                      <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${pct2}%`,background:"#ff6b00",borderRadius:3}}/>
+                      </div>
+                      <div style={{width:54,textAlign:"right",fontSize:11,color:"#444",flexShrink:0}}>{storageInfo.fmtB(item.bytes)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {storageInfo.pct>70&&<div style={{marginTop:10,padding:"7px 10px",borderRadius:8,background:`rgba(255,${storageInfo.pct>80?51:204},0,.1)`,border:`1px solid ${storageInfo.color}44`,fontSize:11,color:storageInfo.color}}>
+                {storageInfo.pct>80?"⚠️ พื้นที่เหลือน้อยมาก! แนะนำให้ Backup แล้วล้างประวัติการขายเก่า":"⚠️ พื้นที่เริ่มเต็ม แนะนำให้ Backup ไว้ก่อน"}
+              </div>}
+            </div>}
             <button onClick={doExport} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
               📊 Export Excel รวมทุกชีต (+ Template สำหรับ Import)
             </button>
