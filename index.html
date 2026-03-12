@@ -1350,7 +1350,7 @@
             {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
             {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
-            {tab==="รายงาน"  &&<ReportTab reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
+            {tab==="รายงาน"  &&<ReportTab online={online} reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
           </div>
 
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
@@ -1637,7 +1637,7 @@
       );
     }
 
-    function ReportTab({reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,users,doExport,setShowImport,setShowBackup}) {
+    function ReportTab({online,reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,users,doExport,setShowImport,setShowBackup}) {
       const last7=Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0),label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})}; });
       const maxRev=Math.max(...last7.map(d=>d.rev),1);
       const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
