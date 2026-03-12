@@ -17,8 +17,8 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script>
     var _db = null;
     try {
@@ -31,18 +31,10 @@
         appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
       };
       if (typeof firebase !== "undefined") {
-        const app = firebase.initializeApp(_fbConfig);
-        _db = firebase.firestore(app);
-        // Updated settings for new Firebase SDK - removed deprecated cacheSizeBytes
-        _db.settings({ 
-          ignoreUndefinedProperties: true
-        });
-        // Enable offline persistence asynchronously without blocking initialization
-        _db.enablePersistence({synchronizeTabs:true}).catch(function(err){
-          if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
-            console.warn("⚠️ Persistence error:", err.code);
-          }
-        });
+        firebase.initializeApp(_fbConfig);
+        _db = firebase.firestore();
+        _db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
+        _db.enablePersistence({synchronizeTabs:true}).catch(function(){});
         console.log("✅ Firebase initialized");
       } else {
         console.warn("⚠️ Firebase SDK ไม่โหลด — ใช้ localStorage แทน");
