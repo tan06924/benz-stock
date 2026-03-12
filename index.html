@@ -1808,91 +1808,67 @@
       const doPrint = () => {
         const isAbbr = docType === "abbr";
         const vatLine = vatRate > 0
-          ? `<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ราคาก่อนภาษี</td><td style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">฿${fmt(beforeVat)}</td></tr>
-             <tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ภาษีมูลค่าเพิ่ม ${vatRate}%</td><td style="text-align:right;padding:3px 8px;color:#ff6b00;font-size:9pt">฿${fmt(vatAmt)}</td></tr>`
+          ? '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ราคาก่อนภาษี</td><td style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">฿'+fmt(beforeVat)+'</td></tr>'
+          + '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ภาษีมูลค่าเพิ่ม '+vatRate+'%</td><td style="text-align:right;padding:3px 8px;color:#ff6b00;font-size:9pt">฿'+fmt(vatAmt)+'</td></tr>'
           : "";
         const discLine = disc > 0
-          ? `<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ส่วนลด</td><td style="text-align:right;padding:3px 8px;color:#ff3333;font-size:9pt">-฿${fmt(disc)}</td></tr>`
+          ? '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ส่วนลด</td><td style="text-align:right;padding:3px 8px;color:#ff3333;font-size:9pt">-฿'+fmt(disc)+'</td></tr>'
           : "";
-        document.getElementById("print-zone").innerHTML = `
-          <style>
-            @media print { body * { visibility:hidden; } #print-zone,#print-zone * { visibility:visible; } #print-zone { position:absolute;left:0;top:0;width:100%; } }
-            #print-zone { font-family:'Sarabun',sans-serif; max-width:210mm; margin:0 auto; }
-            .inv-table { width:100%; border-collapse:collapse; font-size:10pt; }
-            .inv-table th { background:#f5f5f5; padding:6px 8px; text-align:left; font-size:10pt; }
-            .inv-table td { padding:5px 8px; border-bottom:1px solid #eee; font-size:10pt; }
-          </style>
-          <div style="border:2px solid #000;padding:16px 20px;font-size:10pt;line-height:1.5">
-            <!-- Header -->
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-              <div>
-                <div style="font-size:16pt;font-weight:800">${config.name||"ร้านค้า"}</div>
-                ${config.address?`<div style="font-size:9pt;color:#555">${config.address}</div>`:""}
-                ${config.phone?`<div style="font-size:9pt;color:#555">โทร: ${config.phone}</div>`:""}
-                ${config.taxId?`<div style="font-size:9pt">เลขประจำตัวผู้เสียภาษี: <strong>${config.taxId}</strong></div>`:""}
-              </div>
-              <div style="text-align:right">
-                <div style="font-size:14pt;font-weight:800;color:#c00">${isAbbr?"ใบกำกับภาษีอย่างย่อ":"ใบกำกับภาษี / ใบเสร็จรับเงิน"}</div>
-                <div style="font-size:9pt">เลขที่: <strong>${docNo}</strong></div>
-                <div style="font-size:9pt">วันที่: <strong>${thDate(tx.date)} ${tx.time||""}</strong></div>
-              </div>
-            </div>
-            <hr style="border:1px solid #000;margin:8px 0"/>
-            <!-- Buyer (full only) -->
-            ${!isAbbr && (buyerName||buyerAddr||buyerTax) ? `
-            <div style="margin-bottom:10px">
-              <div style="font-size:9pt;font-weight:700">ข้อมูลผู้ซื้อ</div>
-              ${buyerName?`<div style="font-size:9pt">ชื่อ: ${buyerName}</div>`:""}
-              ${buyerAddr?`<div style="font-size:9pt">ที่อยู่: ${buyerAddr}</div>`:""}
-              ${buyerTax?`<div style="font-size:9pt">เลขประจำตัวผู้เสียภาษี: ${buyerTax}</div>`:""}
-            </div>
-            <hr style="border:1px solid #ccc;margin:8px 0"/>` : ""}
-            <!-- Items table -->
-            <table class="inv-table">
-              <thead>
-                <tr>
-                  <th style="width:36px">ลำดับ</th>
-                  <th>รายการ</th>
-                  <th style="text-align:right;width:80px">จำนวน</th>
-                  <th style="text-align:right;width:90px">ราคา/หน่วย</th>
-                  <th style="text-align:right;width:90px">รวม</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>1</td>
-                  <td>${tx.productName}</td>
-                  <td style="text-align:right">${tx.qty}</td>
-                  <td style="text-align:right">฿${fmt(tx.price)}</td>
-                  <td style="text-align:right">฿${fmt(tx.qty*tx.price)}</td>
-                </tr>
-              </tbody>
-            </table>
-            <!-- Totals -->
-            <table style="width:100%;margin-top:8px">
-              ${discLine}
-              ${vatLine}
-              <tr style="border-top:2px solid #000">
-                <td colspan="3" style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">รวมทั้งสิ้น</td>
-                <td style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">฿${fmt(grandTotal)}</td>
-              </tr>
-            </table>
-            <hr style="border:1px solid #ccc;margin:8px 0"/>
-            <!-- Footer -->
-            <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:9pt">
-              <div style="text-align:center">
-                <div style="height:40px"></div>
-                <div>……………………………………</div>
-                <div>ผู้รับเงิน / ผู้ขาย</div>
-              </div>
-              <div style="text-align:center">
-                <div style="height:40px"></div>
-                <div>……………………………………</div>
-                <div>ผู้ชำระเงิน / ผู้ซื้อ</div>
-              </div>
-            </div>
-            <div style="text-align:center;font-size:8pt;color:#888;margin-top:8px">เอกสารนี้ออกโดยระบบคอมพิวเตอร์ ขอบคุณที่ใช้บริการ</div>
-          </div>`;
+        const addrLine  = config.address ? '<div style="font-size:9pt;color:#555">'+config.address+'</div>' : "";
+        const phoneLine = config.phone   ? '<div style="font-size:9pt;color:#555">โทร: '+config.phone+'</div>' : "";
+        const taxLine   = config.taxId   ? '<div style="font-size:9pt">เลขประจำตัวผู้เสียภาษี: <strong>'+config.taxId+'</strong></div>' : "";
+        const buyerSection = (!isAbbr && (buyerName||buyerAddr||buyerTax))
+          ? '<div style="margin-bottom:10px"><div style="font-size:9pt;font-weight:700">ข้อมูลผู้ซื้อ</div>'
+            + (buyerName ? '<div style="font-size:9pt">ชื่อ: '+buyerName+'</div>' : '')
+            + (buyerAddr ? '<div style="font-size:9pt">ที่อยู่: '+buyerAddr+'</div>' : '')
+            + (buyerTax  ? '<div style="font-size:9pt">เลขผู้เสียภาษี: '+buyerTax+'</div>' : '')
+            + '</div><hr style="border:1px solid #ccc;margin:8px 0"/>'
+          : "";
+
+        document.getElementById("print-zone").innerHTML =
+          '<style>'
+          + '@media print { body * { visibility:hidden; } #print-zone,#print-zone * { visibility:visible; } #print-zone { position:absolute;left:0;top:0;width:100%; } }'
+          + '#print-zone { font-family:\'Sarabun\',sans-serif; max-width:210mm; margin:0 auto; }'
+          + '.inv-table { width:100%; border-collapse:collapse; font-size:10pt; }'
+          + '.inv-table th { background:#f5f5f5; padding:6px 8px; text-align:left; font-size:10pt; }'
+          + '.inv-table td { padding:5px 8px; border-bottom:1px solid #eee; font-size:10pt; }'
+          + '</style>'
+          + '<div style="border:2px solid #000;padding:16px 20px;font-size:10pt;line-height:1.5">'
+          + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">'
+          + '<div>'
+          + '<div style="font-size:16pt;font-weight:800">'+(config.name||"ร้านค้า")+'</div>'
+          + addrLine + phoneLine + taxLine
+          + '</div>'
+          + '<div style="text-align:right">'
+          + '<div style="font-size:14pt;font-weight:800;color:#c00">'+(isAbbr?"ใบกำกับภาษีอย่างย่อ":"ใบกำกับภาษี / ใบเสร็จรับเงิน")+'</div>'
+          + '<div style="font-size:9pt">เลขที่: <strong>'+docNo+'</strong></div>'
+          + '<div style="font-size:9pt">วันที่: <strong>'+thDate(tx.date)+' '+(tx.time||"")+'</strong></div>'
+          + '</div></div>'
+          + '<hr style="border:1px solid #000;margin:8px 0"/>'
+          + buyerSection
+          + '<table class="inv-table"><thead><tr>'
+          + '<th style="width:36px">ลำดับ</th><th>รายการ</th>'
+          + '<th style="text-align:right;width:80px">จำนวน</th>'
+          + '<th style="text-align:right;width:90px">ราคา/หน่วย</th>'
+          + '<th style="text-align:right;width:90px">รวม</th>'
+          + '</tr></thead><tbody><tr>'
+          + '<td>1</td><td>'+tx.productName+'</td>'
+          + '<td style="text-align:right">'+tx.qty+'</td>'
+          + '<td style="text-align:right">฿'+fmt(tx.price)+'</td>'
+          + '<td style="text-align:right">฿'+fmt(tx.qty*tx.price)+'</td>'
+          + '</tr></tbody></table>'
+          + '<table style="width:100%;margin-top:8px">'
+          + discLine + vatLine
+          + '<tr style="border-top:2px solid #000">'
+          + '<td colspan="4" style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">รวมทั้งสิ้น ฿'+fmt(grandTotal)+'</td>'
+          + '</tr></table>'
+          + '<hr style="border:1px solid #ccc;margin:8px 0"/>'
+          + '<div style="display:flex;justify-content:space-between;margin-top:16px;font-size:9pt">'
+          + '<div style="text-align:center"><div style="height:40px"></div><div>……………………………</div><div>ผู้รับเงิน / ผู้ขาย</div></div>'
+          + '<div style="text-align:center"><div style="height:40px"></div><div>……………………………</div><div>ผู้ชำระเงิน / ผู้ซื้อ</div></div>'
+          + '</div>'
+          + '<div style="text-align:center;font-size:8pt;color:#888;margin-top:8px">เอกสารนี้ออกโดยระบบคอมพิวเตอร์ ขอบคุณที่ใช้บริการ</div>'
+          + '</div>';
         setTimeout(()=>window.print(),200);
       };
 
