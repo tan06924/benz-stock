@@ -18,17 +18,28 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script>
-    const _fbConfig = {
-      apiKey: "AIzaSyDnjPgN-qBMoJs636Jf7ZysDeH_xEaetxk",
-      authDomain: "benz-stock.firebaseapp.com",
-      projectId: "benz-stock",
-      storageBucket: "benz-stock.firebasestorage.app",
-      messagingSenderId: "950987891419",
-      appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
-    };
-    firebase.initializeApp(_fbConfig);
-    const _db = firebase.firestore();
-    _db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    var _db = null;
+    try {
+      var _fbConfig = {
+        apiKey: "AIzaSyDnjPgN-qBMoJs636Jf7ZysDeH_xEaetxk",
+        authDomain: "benz-stock.firebaseapp.com",
+        projectId: "benz-stock",
+        storageBucket: "benz-stock.firebasestorage.app",
+        messagingSenderId: "950987891419",
+        appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
+      };
+      if (typeof firebase !== "undefined") {
+        firebase.initializeApp(_fbConfig);
+        _db = firebase.firestore();
+        _db.enablePersistence({synchronizeTabs:true}).catch(function(){});
+        console.log("✅ Firebase initialized");
+      } else {
+        console.warn("⚠️ Firebase SDK ไม่โหลด — ใช้ localStorage แทน");
+      }
+    } catch(e) {
+      console.error("Firebase init error:", e);
+      _db = null;
+    }
   </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -126,8 +137,26 @@
       return `${prefix}${String(next).padStart(3,"0")}`;
     };
 
-    /* ─── FIRESTORE HOOK (แทน localStorage) ────────────────────── */
+    /* ─── FIRESTORE HOOK (Firebase + localStorage fallback) ─────── */
     function useFirestore(key, def) {
+      const lsKey = "benz_" + key;
+
+      // ── localStorage fallback (ถ้า Firebase ไม่พร้อม) ──
+      if (!_db) {
+        const [val, setVal] = React.useState(() => {
+          try { const s = localStorage.getItem(lsKey); return s ? JSON.parse(s) : def; } catch { return def; }
+        });
+        const setter = (updater) => {
+          setVal(prev => {
+            const next = typeof updater === "function" ? updater(prev) : updater;
+            try { localStorage.setItem(lsKey, JSON.stringify(next)); } catch {}
+            return next;
+          });
+        };
+        return [val, setter, true];
+      }
+
+      // ── Firebase path ──
       const [val, setValState]  = useState(def);
       const [loaded, setLoaded] = useState(false);
       const valRef              = useRef(def);
@@ -137,11 +166,9 @@
         const ref = _db.collection("benz").doc(key);
         const unsub = ref.onSnapshot(snap => {
           if (snap && snap.exists && snap.data() && snap.data().v !== undefined) {
-            // Firebase มีข้อมูล → ใช้ข้อมูลจาก Firebase เสมอ
             valRef.current = snap.data().v;
             setValState(snap.data().v);
           } else if (isFirst.current) {
-            // ครั้งแรกที่โหลด และ doc ยังไม่มี → ใช้ค่า def แต่ไม่เขียนทับ
             valRef.current = def;
             setValState(def);
           }
@@ -164,7 +191,6 @@
       return [val, setVal, loaded];
     }
 
-    /* ─── compat shim ─────────────────────────────────────────── */
     const usePersist = useFirestore;
 
     /* ─── PRINT ─────────────────────────────────────────────────── */
