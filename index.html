@@ -137,23 +137,89 @@
       return `${prefix}${String(next).padStart(3,"0")}`;
     };
 
-    /* ─── FIRESTORE HOOK (Firebase + localStorage fallback) ─────── */
+    /* ─── FIRESTORE COLLECTION HOOK ────────────────────────────────
+       แต่ละรายการเป็น document ของตัวเอง ไม่มีขีดจำกัด
+    ─────────────────────────────────────────────────────────────── */
+    function useCollection(colName, def) {
+      const lsKey = "benz_" + colName;
+      const useFirebase = !!_db;
+
+      const [lsVal, setLsVal] = useState(() => {
+        try { const s = localStorage.getItem(lsKey); return s ? JSON.parse(s) : def; } catch { return def; }
+      });
+      const [fbItems, setFbItems] = useState([]);
+      const [loaded, setLoaded]   = useState(!useFirebase);
+      const prevRef               = useRef([]);
+
+      useEffect(() => {
+        if (!useFirebase) return;
+        const unsub = _db.collection(colName).onSnapshot(snap => {
+          const items = snap.docs.map(d => d.data()._v).filter(Boolean);
+          prevRef.current = items;
+          setFbItems(items);
+          setLoaded(true);
+        }, err => { console.warn("Col error:", colName, err); setLoaded(true); });
+        return unsub;
+      }, [colName, useFirebase]);
+
+      const setVal = (updater) => {
+        const prev = useFirebase ? prevRef.current : lsVal;
+        const next = typeof updater === "function" ? updater(prev) : updater;
+
+        if (!useFirebase) {
+          setLsVal(next);
+          try { localStorage.setItem(lsKey, JSON.stringify(next)); } catch {}
+          return;
+        }
+
+        // Optimistic update
+        prevRef.current = next;
+        setFbItems(next);
+
+        // Diff — เขียนเฉพาะที่เปลี่ยน/เพิ่ม/ลบ
+        const prevMap = new Map(prev.map(x => [String(x.id), x]));
+        const nextMap = new Map(next.map(x => [String(x.id), x]));
+        const batch   = _db.batch();
+        let ops = 0;
+
+        // ลบรายการที่หายไป
+        prevMap.forEach((_, id) => {
+          if (!nextMap.has(id)) {
+            batch.delete(_db.collection(colName).doc(id));
+            ops++;
+          }
+        });
+        // เพิ่ม/อัปเดตรายการที่เปลี่ยน
+        nextMap.forEach((item, id) => {
+          const old = prevMap.get(id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(item)) {
+            batch.set(_db.collection(colName).doc(id), { _v: item });
+            ops++;
+          }
+        });
+
+        if (ops > 0) batch.commit().catch(e => console.error("Batch err:", colName, e));
+      };
+
+      return [useFirebase ? fbItems : lsVal, setVal, loaded];
+    }
+
+    /* ─── FIRESTORE SINGLE-DOC HOOK (สำหรับ users, shopname) ───── */
     function useFirestore(key, def) {
       const lsKey = "benz_" + key;
       const useFirebase = !!_db;
 
-      // เรียก hooks ที่ top level เสมอ
       const [lsVal, setLsVal] = useState(() => {
         try { const s = localStorage.getItem(lsKey); return s ? JSON.parse(s) : def; } catch { return def; }
       });
       const [fbVal, setFbVal]   = useState(def);
-      const [loaded, setLoaded] = useState(!useFirebase); // localStorage = โหลดทันที
+      const [loaded, setLoaded] = useState(!useFirebase);
       const valRef              = useRef(def);
       const isFirst             = useRef(true);
 
       useEffect(() => {
         if (!useFirebase) return;
-        const ref = _db.collection("benz").doc(key);
+        const ref = _db.collection("benz_config").doc(key);
         const unsub = ref.onSnapshot(snap => {
           if (snap && snap.exists && snap.data() && snap.data().v !== undefined) {
             valRef.current = snap.data().v;
@@ -164,10 +230,7 @@
           }
           isFirst.current = false;
           setLoaded(true);
-        }, err => {
-          console.warn("Firestore error:", key, err);
-          setLoaded(true);
-        });
+        }, err => { console.warn("Doc error:", key, err); setLoaded(true); });
         return unsub;
       }, [key, useFirebase]);
 
@@ -176,7 +239,7 @@
           const next = typeof updater === "function" ? updater(valRef.current) : updater;
           valRef.current = next;
           setFbVal(next);
-          _db.collection("benz").doc(key).set({ v: next }).catch(e => console.error("Save error:", key, e));
+          _db.collection("benz_config").doc(key).set({ v: next }).catch(e => console.error("Save error:", key, e));
         } else {
           setLsVal(prev => {
             const next = typeof updater === "function" ? updater(prev) : updater;
@@ -958,9 +1021,9 @@
       const [users,setUsers,usersLoaded]          = useFirestore("users",        DEF_USERS);
       const [cu,setCU]                            = useState(()=>{ try{const s=sessionStorage.getItem("benz_sess");return s?JSON.parse(s):null;}catch{return null;} });
       const [tab,setTab]                          = useState("หน้าหลัก");
-      const [products,setProducts,prodLoaded]     = useFirestore("products",     []);
-      const [transactions,setTxs,txLoaded]        = useFirestore("transactions", []);
-      const [warranties,setWarranties,wLoaded]    = useFirestore("warranties",   []);
+      const [products,setProducts,prodLoaded]     = useCollection("products",     []);
+      const [transactions,setTxs,txLoaded]        = useCollection("transactions", []);
+      const [warranties,setWarranties,wLoaded]    = useCollection("warranties",   []);
       const [shopName]                            = useFirestore("shopname",     "BENZ ประดับยนต์");
       const [modal,setModal]                      = useState(null);
       const [form,setForm]                        = useState({});
@@ -1429,16 +1492,18 @@
           const wBytes  = toBytes(warranties);
           const uBytes  = toBytes(users||[]);
           const used    = pBytes + tBytes + wBytes + uBytes;
-          const LIMIT   = 1*1024*1024; // Firestore doc limit 1MB per doc
-          const pct     = Math.min(100,(used/LIMIT)*100);
-          const color   = pct>80?"#ff3333":pct>50?"#ffcc00":"#00cc66";
           const fmtB    = b => b>1024*1024?`${(b/1024/1024).toFixed(2)} MB`:b>1024?`${(b/1024).toFixed(1)} KB`:`${b} B`;
-          return { used, limit:LIMIT, pct, color, fmtB,
+          return { used, fmtB,
+            counts: {
+              products: products.length,
+              transactions: transactions.length,
+              warranties: warranties.length,
+            },
             breakdown:[
-              {label:"📦 สินค้า",bytes:pBytes},
-              {label:"🔄 ประวัติขาย/รับ",bytes:tBytes},
-              {label:"🛡️ ประกัน",bytes:wBytes},
-              {label:"👤 ผู้ใช้",bytes:uBytes},
+              {label:"📦 สินค้า",       bytes:pBytes, count:products.length},
+              {label:"🔄 ประวัติขาย/รับ",bytes:tBytes, count:transactions.length},
+              {label:"🛡️ ประกัน",       bytes:wBytes, count:warranties.length},
+              {label:"👤 ผู้ใช้",        bytes:uBytes, count:(users||[]).length},
             ]
           };
         } catch { return null; }
@@ -1476,39 +1541,26 @@
             <SecTitle>จัดการข้อมูล</SecTitle>
 
             {/* Storage indicator */}
-            {storageInfo&&<div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:`1px solid ${storageInfo.color}33`,marginBottom:4}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{fontSize:13,fontWeight:700}}>☁️ ขนาดข้อมูล (Firebase)</div>
-                <div style={{fontSize:11,fontWeight:800,color:storageInfo.color}}>
-                  {storageInfo.pct.toFixed(1)}%
+            {storageInfo&&<div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:"1px solid #ff6b0022",marginBottom:4}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700}}>☁️ ข้อมูลบน Firebase</div>
+                <div style={{fontSize:11,color:"#00cc66",fontWeight:700}}>ไม่จำกัด ✅</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {storageInfo.breakdown.map(item=>(
+                  <div key={item.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"#161616",borderRadius:8}}>
+                    <span style={{fontSize:12,color:"#888"}}>{item.label}</span>
+                    <div style={{textAlign:"right"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#ff9500"}}>{item.count} รายการ</span>
+                      <span style={{fontSize:10,color:"#444",marginLeft:6}}>{storageInfo.fmtB(item.bytes)}</span>
+                    </div>
+                  </div>
+                ))}
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 10px",borderTop:"1px solid #222",marginTop:2}}>
+                  <span style={{fontSize:11,color:"#555"}}>รวมทั้งหมด</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#aaa"}}>{storageInfo.fmtB(storageInfo.used)}</span>
                 </div>
               </div>
-              {/* Progress bar */}
-              <div style={{height:8,background:"#222",borderRadius:6,overflow:"hidden",marginBottom:8}}>
-                <div style={{height:"100%",width:`${storageInfo.pct}%`,background:storageInfo.pct>80?"linear-gradient(90deg,#ff6b00,#ff3333)":storageInfo.pct>50?"#ffcc00":"#00cc66",borderRadius:6,transition:"width .5s"}}/>
-              </div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:10}}>
-                <span>ใช้ไป <strong style={{color:storageInfo.color}}>{storageInfo.fmtB(storageInfo.used)}</strong></span>
-                <span>เหลือ <strong style={{color:"#aaa"}}>{storageInfo.fmtB(storageInfo.limit-storageInfo.used)}</strong> / {storageInfo.fmtB(storageInfo.limit)} ต่อ doc</span>
-              </div>
-              {/* Breakdown */}
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {storageInfo.breakdown.map(item=>{
-                  const pct2 = (item.bytes/storageInfo.limit)*100;
-                  return (
-                    <div key={item.label} style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{width:90,fontSize:11,color:"#555",flexShrink:0}}>{item.label}</div>
-                      <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:3,overflow:"hidden"}}>
-                        <div style={{height:"100%",width:`${pct2}%`,background:"#ff6b00",borderRadius:3}}/>
-                      </div>
-                      <div style={{width:54,textAlign:"right",fontSize:11,color:"#444",flexShrink:0}}>{storageInfo.fmtB(item.bytes)}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              {storageInfo.pct>70&&<div style={{marginTop:10,padding:"7px 10px",borderRadius:8,background:`rgba(255,${storageInfo.pct>80?51:204},0,.1)`,border:`1px solid ${storageInfo.color}44`,fontSize:11,color:storageInfo.color}}>
-                {storageInfo.pct>80?"⚠️ พื้นที่เหลือน้อยมาก! แนะนำให้ Backup แล้วล้างประวัติการขายเก่า":"⚠️ พื้นที่เริ่มเต็ม แนะนำให้ Backup ไว้ก่อน"}
-              </div>}
             </div>}
             <button onClick={doExport} style={{width:"100%",padding:14,borderRadius:10,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
               📊 Export Excel รวมทุกชีต (+ Template สำหรับ Import)
