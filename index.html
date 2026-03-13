@@ -264,6 +264,22 @@
       const vatRate = cfg.vatRate ?? 7;
       const vatAmt  = vatRate > 0 ? Math.round((tx.total * vatRate / (100+vatRate)) * 100)/100 : 0;
       const beforeVat = vatRate > 0 ? tx.total - vatAmt : tx.total;
+
+      // Build item lines — support multi-item (tx.items) or legacy single-item
+      let itemLines = "";
+      if (tx.items && tx.items.length > 0) {
+        tx.items.forEach(it => {
+          itemLines += `<div class="pr"><span>${it.productName}</span></div>`
+            + `<div class="pr" style="color:#555"><span>${it.qty} x ฿${fmt(it.price)}</span><span>฿${fmt(it.total)}</span></div>`;
+        });
+        if ((tx.installFee||0) > 0) {
+          itemLines += `<div class="pr"><span>🔧 ค่าติดตั้ง${tx.installNote?` (${tx.installNote})`:"" }</span><span>฿${fmt(tx.installFee)}</span></div>`;
+        }
+      } else {
+        itemLines = `<div class="pr"><span>${tx.productName}</span></div>`
+          + `<div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div>`;
+      }
+
       document.getElementById("print-zone").innerHTML=`
         <div style="text-align:center;font-size:16pt;font-weight:800">${sName}</div>
         ${cfg.address?`<div style="text-align:center;font-size:9pt;color:#555">${cfg.address}</div>`:""}
@@ -271,8 +287,7 @@
         <div style="text-align:center;font-size:9pt;color:#555">ใบเสร็จรับเงิน</div><hr class="pr-hr"/>
         <div class="pr"><span>เลขที่:</span><span>${rcpNo}</span></div>
         <div class="pr"><span>วันที่:</span><span>${thDate(tx.date)} ${tx.time||""}</span></div><hr class="pr-hr"/>
-        <div class="pr"><span>${tx.productName}</span></div>
-        <div class="pr" style="color:#555"><span>${tx.qty} x ฿${fmt(tx.price)}</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
+        ${itemLines}<hr class="pr-hr"/>
         ${vatRate>0?`<div class="pr" style="color:#555;font-size:9pt"><span>ราคาก่อน VAT</span><span>฿${fmt(beforeVat)}</span></div>
         <div class="pr" style="color:#555;font-size:9pt"><span>VAT ${vatRate}%</span><span>฿${fmt(vatAmt)}</span></div><hr class="pr-hr"/>`:""}
         <div class="pr" style="font-size:13pt;font-weight:800"><span>รวม</span><span>฿${fmt(tx.total)}</span></div><hr class="pr-hr"/>
@@ -1122,6 +1137,10 @@
       const [showBarcode,setShowBarcode]          = useState(false);
       const [showShopConfig,setShowShopConfig]    = useState(false);
       const [taxInvoiceTx,setTaxInvoiceTx]        = useState(null);
+      // ── Cart (multi-item bill) ──────────────────────────────────
+      const [cart,setCart]                        = useState([]); // [{productId,productName,productCode,qty,price,unit}]
+      const [installFee,setInstallFee]            = useState("");
+      const [installNote,setInstallNote]          = useState("");
 
       const [online, setOnline] = useState(navigator.onLine);
       useEffect(()=>{
@@ -1224,14 +1243,23 @@
       if(!cu) return <LoginPage users={users} onLogin={login}/>;
 
       const toast_ = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),2800); };
-      const closeModal = () => { setModal(null); setForm({}); setScanRes(null); };
+      const closeModal = () => { setModal(null); setForm({}); setScanRes(null); setCart([]); setInstallFee(""); setInstallNote(""); };
 
       /* Barcode */
       const onScan = code => {
         setScanner(null);
         const p=products.find(x=>x.code.toLowerCase()===code.toLowerCase()||String(x.id)===code);
         if(p){
-          if(scanner==="in"||scanner==="out"){
+          if(scanner==="cart"){
+            // add to cart
+            setCart(prev=>{
+              const idx=prev.findIndex(i=>i.productId===p.id);
+              if(idx>=0){ const n=[...prev]; n[idx]={...n[idx],qty:n[idx].qty+1}; return n; }
+              return [...prev,{productId:p.id,productName:p.name,productCode:p.code,qty:1,price:p.price,unit:p.unit||"ชิ้น"}];
+            });
+            toast_(`✅ เพิ่มตะกร้า: ${p.name}`);
+            setModal("out"); // keep cart modal open
+          } else if(scanner==="in"||scanner==="out"){
             // เปิด modal พร้อมเลือกสินค้าทันที
             setForm(f=>({...f, productId:String(p.id), qty:"1"}));
             setScanRes({ok:true,p});
@@ -1245,7 +1273,8 @@
           setScanRes({ok:false,code});
           toast_(`⚠️ ไม่พบรหัส: ${code}`,"err");
           // ถ้า scan จาก modal ที่เปิดอยู่แล้ว ให้คง modal ไว้
-          if(scanner==="in"||scanner==="out") setModal(scanner);
+          if(scanner==="cart") setModal("out");
+          else if(scanner==="in"||scanner==="out") setModal(scanner);
         }
       };
 
@@ -1261,6 +1290,42 @@
         setProducts(prev=>prev.map(x=>x.id===p.id?{...x,stock:type==="in"?x.stock+qty:x.stock-qty}:x));
         if(type==="out") setLastRcp(tx);
         closeModal(); toast_(type==="in"?`✅ รับสินค้าเข้า +${qty}`:`✅ บันทึกการขาย -${qty}`);
+      };
+
+      /* Cart (multi-item sale) */
+      const submitCart = () => {
+        if(cart.length===0) return toast_("กรุณาเพิ่มสินค้าในตะกร้า","err");
+        // Stock check
+        for(const ci of cart){
+          const p=products.find(x=>x.id===ci.productId);
+          if(!p) return toast_(`ไม่พบสินค้า: ${ci.productName}`,"err");
+          if(p.stock<ci.qty) return toast_(`⚠️ สต๊อก ${p.name} ไม่เพียงพอ (มี ${p.stock})!`,"err");
+        }
+        const fee=parseFloat(installFee)||0;
+        const items=cart.map(ci=>({productId:ci.productId,productName:ci.productName,qty:ci.qty,price:ci.price,total:ci.price*ci.qty}));
+        const itemsTotal=items.reduce((s,i)=>s+i.total,0);
+        const grandTotal=itemsTotal+fee;
+        const firstItem=cart[0];
+        const tx={
+          id:Date.now(),date:form.date||today(),time:nowTs(),type:"out",
+          items, installFee:fee, installNote:installNote||"",
+          // backward-compat fields
+          productId:firstItem.productId,
+          productName:cart.length>1?`รายการขาย ${cart.length} รายการ`:firstItem.productName,
+          qty:cart.reduce((s,i)=>s+i.qty,0),
+          price:firstItem.price,
+          total:grandTotal,
+          note:form.note||"ขายลูกค้า",
+          createdBy:cu.name
+        };
+        setTxs(prev=>[tx,...prev]);
+        setProducts(prev=>prev.map(p=>{
+          const ci=cart.find(i=>i.productId===p.id);
+          return ci?{...p,stock:p.stock-ci.qty}:p;
+        }));
+        setLastRcp(tx);
+        closeModal();
+        toast_(`✅ บันทึกบิล ${cart.length} รายการ ฿${fmt(grandTotal)}`);
       };
 
       /* Add product (auto-code) */
@@ -1366,9 +1431,9 @@
           </div>
 
           {/* MODALS */}
-          {(modal==="in"||modal==="out")&&(
-            <Modal title={modal==="in"?"📥 รับสินค้าเข้า":"📤 บันทึกการขาย"} onClose={closeModal}>
-              <button onClick={()=>setScanner(modal)} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          {modal==="in"&&(
+            <Modal title="📥 รับสินค้าเข้า" onClose={closeModal}>
+              <button onClick={()=>setScanner("in")} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                 <span style={{fontSize:20}}>📷</span> สแกนบาร์โค้ดสินค้า
               </button>
               {scanRes&&<div style={{padding:"8px 12px",borderRadius:8,fontSize:12,background:scanRes.ok?"rgba(0,204,102,.1)":"rgba(255,51,51,.1)",border:`1px solid ${scanRes.ok?"#00cc6644":"#ff333344"}`,color:scanRes.ok?"#00cc66":"#ff6666"}}>
@@ -1383,10 +1448,134 @@
               </div>
               <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0"/>
               <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
-              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder={modal==="in"?"รับจากซัพพลายเออร์":"ขายลูกค้า"}/>
+              <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="รับจากซัพพลายเออร์"/>
               {form.productId&&form.qty&&<div style={{background:"#1a1a1a",borderRadius:8,padding:10,fontSize:13,color:"#aaa"}}>💰 มูลค่า: <strong style={{color:"#ff9500"}}>฿{fmt((products.find(p=>p.id===parseInt(form.productId))?.price||0)*parseInt(form.qty||0))} บาท</strong></div>}
-              <OBtn onClick={()=>submitTx(modal)}>{modal==="in"?"✅ บันทึกรับสินค้า":"✅ บันทึกการขาย"}</OBtn>
+              <OBtn onClick={()=>submitTx("in")}>✅ บันทึกรับสินค้า</OBtn>
             </Modal>
+          )}
+
+          {modal==="out"&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)closeModal();}}>
+              <div style={{background:"#111",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"94vh",display:"flex",flexDirection:"column",border:"1px solid #2a2a2a"}}>
+                {/* Header */}
+                <div style={{padding:"14px 18px 10px",borderBottom:"1px solid #222",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:800}}>🛒 บิลขาย</div>
+                    <div style={{fontSize:11,color:"#555",marginTop:1}}>{cart.length>0?`${cart.length} รายการ · ฿${fmt(cart.reduce((s,i)=>s+i.price*i.qty,0)+(parseFloat(installFee)||0))}`:""}</div>
+                  </div>
+                  <button onClick={closeModal} style={{background:"#222",border:"none",color:"#aaa",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                </div>
+
+                {/* Scrollable body */}
+                <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+
+                  {/* Scan + Add buttons */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <button onClick={()=>setScanner("cart")} style={{padding:"11px 8px",borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                      <span style={{fontSize:18}}>📷</span> สแกน
+                    </button>
+                    <div style={{position:"relative"}}>
+                      <select onChange={e=>{
+                        const p=products.find(x=>x.id===parseInt(e.target.value));
+                        if(!p)return;
+                        setCart(prev=>{
+                          const idx=prev.findIndex(i=>i.productId===p.id);
+                          if(idx>=0){const n=[...prev];n[idx]={...n[idx],qty:n[idx].qty+1};return n;}
+                          return [...prev,{productId:p.id,productName:p.name,productCode:p.code,qty:1,price:p.price,unit:p.unit||"ชิ้น"}];
+                        });
+                        e.target.value="";
+                      }} defaultValue="" style={{width:"100%",height:"100%",padding:"11px 8px",borderRadius:10,border:"2px dashed #00aaff66",background:"rgba(0,170,255,.06)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer",appearance:"none",WebkitAppearance:"none"}}>
+                        <option value="">+ เลือกสินค้า</option>
+                        {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} ({p.stock} {p.unit})</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Cart items */}
+                  {cart.length===0&&(
+                    <div style={{textAlign:"center",padding:"24px 0",color:"#333",fontSize:13}}>
+                      🛒 ยังไม่มีสินค้าในบิล<br/><span style={{fontSize:11,color:"#2a2a2a"}}>สแกนหรือเลือกสินค้าด้านบน</span>
+                    </div>
+                  )}
+                  {cart.map((ci,idx)=>{
+                    const p=products.find(x=>x.id===ci.productId);
+                    const isLow=p&&p.stock<ci.qty;
+                    return (
+                      <div key={ci.productId} style={{background:"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"10px 12px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700,display:"inline-block",marginBottom:3}}>{ci.productCode}</div>
+                            <div style={{fontSize:13,fontWeight:600,lineHeight:1.3}}>{ci.productName}</div>
+                            <div style={{fontSize:11,color:"#666"}}>฿{fmt(ci.price)} / {ci.unit}</div>
+                          </div>
+                          <button onClick={()=>setCart(prev=>prev.filter((_,i)=>i!==idx))} style={{background:"#1a1a1a",border:"1px solid #333",color:"#ff6666",width:24,height:24,borderRadius:6,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginLeft:8}}>✕</button>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <button onClick={()=>setCart(prev=>prev.map((i,ii)=>ii===idx?{...i,qty:Math.max(1,i.qty-1)}:i))} style={{width:30,height:30,borderRadius:7,border:"1px solid #333",background:"#222",color:"#aaa",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                            <input type="number" value={ci.qty} onChange={e=>setCart(prev=>prev.map((i,ii)=>ii===idx?{...i,qty:Math.max(1,parseInt(e.target.value)||1)}:i))}
+                              style={{width:48,textAlign:"center",fontWeight:800,color:"#ff9500",fontSize:15,background:"#1a1a1a",border:"1px solid #333",borderRadius:7,padding:"4px 0"}}/>
+                            <button onClick={()=>setCart(prev=>prev.map((i,ii)=>ii===idx?{...i,qty:i.qty+1}:i))} style={{width:30,height:30,borderRadius:7,border:"1px solid #333",background:"#222",color:"#aaa",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+                            <span style={{fontSize:10,color:"#444"}}>{ci.unit}</span>
+                          </div>
+                          <div style={{fontWeight:700,color:"#fff",fontSize:14}}>฿{fmt(ci.price*ci.qty)}</div>
+                        </div>
+                        {isLow&&<div style={{fontSize:10,color:"#ff6666",marginTop:4}}>⚠️ สต๊อกมีแค่ {p.stock} {ci.unit}</div>}
+                      </div>
+                    );
+                  })}
+
+                  {/* Installation fee */}
+                  <div style={{background:"#0d0d0d",borderRadius:10,padding:12,border:"1px solid #1a1a2e"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#00aaff",marginBottom:8}}>🔧 ค่าติดตั้ง (ไม่ตัดสต๊อก)</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <label style={{fontSize:10,color:"#666",display:"block",marginBottom:3}}>ราคาค่าติดตั้ง (฿)</label>
+                        <input type="number" min="0" value={installFee} onChange={e=>setInstallFee(e.target.value)} placeholder="0"
+                          style={{width:"100%",padding:"9px 10px",borderRadius:8,border:`1px solid ${parseFloat(installFee)>0?"#00aaff55":"#333"}`,background:"#1a1a1a",color:"#fff",fontSize:14,fontWeight:700}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,color:"#666",display:"block",marginBottom:3}}>รายละเอียด</label>
+                        <input value={installNote} onChange={e=>setInstallNote(e.target.value)} placeholder="เช่น ติดฟิล์ม..."
+                          style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}/>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Date & Note */}
+                  <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
+                  <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="ขายลูกค้า"/>
+
+                  {/* Summary */}
+                  {cart.length>0&&(()=>{
+                    const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
+                    const fee=parseFloat(installFee)||0;
+                    const grand=sub+fee;
+                    return (
+                      <div style={{background:"#0a0a0a",borderRadius:10,padding:12,border:"1px solid #ff6b0033"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#666",marginBottom:4}}>
+                          <span>รวมสินค้า ({cart.reduce((s,i)=>s+i.qty,0)} ชิ้น)</span><span>฿{fmt(sub)}</span>
+                        </div>
+                        {fee>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#00aaff",marginBottom:4}}>
+                          <span>🔧 ค่าติดตั้ง</span><span>฿{fmt(fee)}</span>
+                        </div>}
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:16,fontWeight:800,color:"#ff9500",borderTop:"1px solid #2a2a2a",paddingTop:8,marginTop:4}}>
+                          <span>รวมทั้งสิ้น</span><span>฿{fmt(grand)}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Submit button */}
+                <div style={{padding:"12px 16px 24px",borderTop:"1px solid #222",flexShrink:0}}>
+                  <button onClick={submitCart} disabled={cart.length===0}
+                    style={{width:"100%",padding:14,borderRadius:10,border:"none",cursor:cart.length>0?"pointer":"not-allowed",background:cart.length>0?"linear-gradient(135deg,#ff6b00,#ff9500)":"#222",color:cart.length>0?"#fff":"#444",fontSize:14,fontWeight:700,boxShadow:cart.length>0?"0 4px 15px rgba(255,107,0,.35)":"none"}}>
+                    ✅ บันทึกการขาย {cart.length>0?`(${cart.length} รายการ · ฿${fmt(cart.reduce((s,i)=>s+i.price*i.qty,0)+(parseFloat(installFee)||0))})` : ""}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {modal==="addProduct"&&(
@@ -1802,23 +1991,44 @@
     }
     function TxRow({tx,onPrint,onTax}) {
       const isOut=tx.type==="out";
-      return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
-        <div style={{display:"flex",gap:9,alignItems:"center",flex:1}}>
-          <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</div>
-            <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
-            {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>👤 {tx.createdBy}</div>}
+      const isMulti=tx.items&&tx.items.length>1;
+      const hasInstall=(tx.installFee||0)>0;
+      return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{display:"flex",gap:9,alignItems:"flex-start",flex:1}}>
+            <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:2}}>
+                <span style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</span>
+                {isMulti&&<span style={{fontSize:9,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>{tx.items.length} รายการ</span>}
+                {hasInstall&&<span style={{fontSize:9,background:"rgba(0,170,255,.2)",color:"#00aaff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 ค่าติดตั้ง</span>}
+              </div>
+              <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
+              {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>👤 {tx.createdBy}</div>}
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
+              <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
+            </div>
+            {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
+            {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄 ภาษี</button>}
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
-            <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
-          </div>
-          {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
-          {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄 ภาษี</button>}
-        </div>
+        {/* Sub-item list for multi-item bills */}
+        {isMulti&&<div style={{marginTop:8,paddingLeft:43,display:"flex",flexDirection:"column",gap:3}}>
+          {tx.items.map((it,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666"}}>
+              <span>· {it.productName} ×{it.qty}</span>
+              <span>฿{fmt(it.total)}</span>
+            </div>
+          ))}
+          {hasInstall&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#00aaff"}}>
+            <span>🔧 ค่าติดตั้ง{tx.installNote?` (${tx.installNote})`:"" }</span>
+            <span>฿{fmt(tx.installFee)}</span>
+          </div>}
+        </div>}
       </div>;
     }
     function SecTitle({children}) {
@@ -1900,7 +2110,6 @@
       const [docType,    setDocType]    = useState("full"); // full | abbr
       const [discount,   setDiscount]   = useState(0);
       const docNo = `${config.taxPrefix||"TAX"}-${String(tx.id).slice(-6)}`;
-      const rcpNo = `${config.receiptPrefix||"RCP"}-${String(tx.id).slice(-6)}`;
 
       const vatRate  = config.vatRate ?? 7;
       const disc     = parseFloat(discount)||0;
@@ -1909,14 +2118,19 @@
       const beforeVat= vatRate>0 ? Math.round((subTotal / (1 + vatRate/100)) * 100)/100 : subTotal;
       const grandTotal = subTotal;
 
+      // Determine line items
+      const lineItems = tx.items && tx.items.length > 0
+        ? [...tx.items, ...((tx.installFee||0)>0 ? [{productName:`ค่าติดตั้ง${tx.installNote?` (${tx.installNote})`:""}`,qty:1,price:tx.installFee,total:tx.installFee}] : [])]
+        : [{productName:tx.productName, qty:tx.qty, price:tx.price, total:tx.qty*tx.price}];
+
       const doPrint = () => {
         const isAbbr = docType === "abbr";
         const vatLine = vatRate > 0
-          ? '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ราคาก่อนภาษี</td><td style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">฿'+fmt(beforeVat)+'</td></tr>'
-          + '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ภาษีมูลค่าเพิ่ม '+vatRate+'%</td><td style="text-align:right;padding:3px 8px;color:#ff6b00;font-size:9pt">฿'+fmt(vatAmt)+'</td></tr>'
+          ? '<tr><td colspan="4" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ราคาก่อนภาษี</td><td style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">฿'+fmt(beforeVat)+'</td></tr>'
+          + '<tr><td colspan="4" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ภาษีมูลค่าเพิ่ม '+vatRate+'%</td><td style="text-align:right;padding:3px 8px;color:#ff6b00;font-size:9pt">฿'+fmt(vatAmt)+'</td></tr>'
           : "";
         const discLine = disc > 0
-          ? '<tr><td colspan="3" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ส่วนลด</td><td style="text-align:right;padding:3px 8px;color:#ff3333;font-size:9pt">-฿'+fmt(disc)+'</td></tr>'
+          ? '<tr><td colspan="4" style="text-align:right;padding:3px 8px;color:#555;font-size:9pt">ส่วนลด</td><td style="text-align:right;padding:3px 8px;color:#ff3333;font-size:9pt">-฿'+fmt(disc)+'</td></tr>'
           : "";
         const addrLine  = config.address ? '<div style="font-size:9pt;color:#555">'+config.address+'</div>' : "";
         const phoneLine = config.phone   ? '<div style="font-size:9pt;color:#555">โทร: '+config.phone+'</div>' : "";
@@ -1928,6 +2142,14 @@
             + (buyerTax  ? '<div style="font-size:9pt">เลขผู้เสียภาษี: '+buyerTax+'</div>' : '')
             + '</div><hr style="border:1px solid #ccc;margin:8px 0"/>'
           : "";
+        const itemRows = lineItems.map((it,i)=>
+          '<tr>'
+          + '<td>'+(i+1)+'</td><td>'+it.productName+'</td>'
+          + '<td style="text-align:right">'+it.qty+'</td>'
+          + '<td style="text-align:right">฿'+fmt(it.price)+'</td>'
+          + '<td style="text-align:right">฿'+fmt(it.total)+'</td>'
+          + '</tr>'
+        ).join("");
 
         document.getElementById("print-zone").innerHTML =
           '<style>'
@@ -1952,19 +2174,16 @@
           + buyerSection
           + '<table class="inv-table"><thead><tr>'
           + '<th style="width:36px">ลำดับ</th><th>รายการ</th>'
-          + '<th style="text-align:right;width:80px">จำนวน</th>'
+          + '<th style="text-align:right;width:60px">จำนวน</th>'
           + '<th style="text-align:right;width:90px">ราคา/หน่วย</th>'
           + '<th style="text-align:right;width:90px">รวม</th>'
-          + '</tr></thead><tbody><tr>'
-          + '<td>1</td><td>'+tx.productName+'</td>'
-          + '<td style="text-align:right">'+tx.qty+'</td>'
-          + '<td style="text-align:right">฿'+fmt(tx.price)+'</td>'
-          + '<td style="text-align:right">฿'+fmt(tx.qty*tx.price)+'</td>'
-          + '</tr></tbody></table>'
+          + '</tr></thead><tbody>'
+          + itemRows
+          + '</tbody></table>'
           + '<table style="width:100%;margin-top:8px">'
           + discLine + vatLine
           + '<tr style="border-top:2px solid #000">'
-          + '<td colspan="4" style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">รวมทั้งสิ้น ฿'+fmt(grandTotal)+'</td>'
+          + '<td colspan="5" style="text-align:right;padding:5px 8px;font-weight:800;font-size:11pt">รวมทั้งสิ้น ฿'+fmt(grandTotal)+'</td>'
           + '</tr></table>'
           + '<hr style="border:1px solid #ccc;margin:8px 0"/>'
           + '<div style="display:flex;justify-content:space-between;margin-top:16px;font-size:9pt">'
@@ -1998,11 +2217,17 @@
 
             {/* สรุปรายการ */}
             <div style={{background:"#1a0a00",borderRadius:10,padding:12,marginBottom:14,border:"1px solid #ff6b0033"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span style={{fontSize:13,color:"#aaa"}}>{tx.productName}</span>
-                <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>฿{fmt(tx.total)}</span>
+              {lineItems.map((it,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:12,color:"#aaa",flex:1,paddingRight:8}}>{it.productName}</span>
+                  <span style={{fontSize:12,color:"#888",flexShrink:0}}>{it.qty}×฿{fmt(it.price)}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#fff",minWidth:70,textAlign:"right"}}>฿{fmt(it.total)}</span>
+                </div>
+              ))}
+              <div style={{borderTop:"1px solid #333",paddingTop:6,marginTop:4,display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontSize:12,color:"#666"}}>รวม</span>
+                <span style={{fontSize:14,fontWeight:800,color:"#ff9500"}}>฿{fmt(tx.total)}</span>
               </div>
-              <div style={{fontSize:11,color:"#555"}}>{tx.qty} x ฿{fmt(tx.price)}</div>
               {vatRate>0&&<div style={{fontSize:11,color:"#ff9500",marginTop:4}}>รวม VAT {vatRate}% = ฿{fmt(vatAmt)}</div>}
             </div>
 
