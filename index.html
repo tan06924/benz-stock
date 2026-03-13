@@ -633,29 +633,38 @@
       const [status,setStatus]=useState("starting");
       const [last,setLast]=useState("");
       const [manual,setManual]=useState("");
+      // ใช้ ref แทน state ใน callback เพื่อป้องกัน stale closure (scan ซ้ำ)
+      const lastRef=useRef("");
+      const onScanRef=useRef(onScan);
+      useEffect(()=>{ onScanRef.current=onScan; });
       useEffect(()=>{
-        let sc=null;
         let stopped=false;
+        let sc=null;
         (async()=>{
           try{
+            // ขอ permission กล้องก่อน (iOS Safari)
+            const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+            stream.getTracks().forEach(t=>t.stop());
+            if(stopped) return;
             sc=new Html5Qrcode("barcode-reader");
             ref.current=sc;
-            // ลอง environment ก่อน ถ้าไม่ได้ใช้ facingMode ปกติ (แก้ iOS จอดำ)
-            const camConfig = {facingMode:{exact:"environment"}};
-            const scanConfig = {fps:10,qrbox:{width:240,height:120},aspectRatio:1.6,
-              videoConstraints:{facingMode:{exact:"environment"},width:{ideal:1280},height:{ideal:720}}};
-            try{
-              await sc.start(camConfig, scanConfig,
-                (d)=>{if(d!==last&&!stopped){setLast(d);if(navigator.vibrate)navigator.vibrate(100);onScan(d);}},()=>{});
-            }catch{
-              // fallback: ไม่บังคับ exact environment
-              await sc.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:120},aspectRatio:1.6},
-                (d)=>{if(d!==last&&!stopped){setLast(d);if(navigator.vibrate)navigator.vibrate(100);onScan(d);}},()=>{});
-            }
+            await sc.start(
+              {facingMode:"environment"},
+              {fps:10, qrbox:{width:250,height:120}, aspectRatio:1.777},
+              (d)=>{
+                if(stopped) return;
+                if(d===lastRef.current) return; // ป้องกัน scan ซ้ำ (ใช้ ref ไม่ใช่ state)
+                lastRef.current=d;
+                setLast(d);
+                if(navigator.vibrate)navigator.vibrate(100);
+                onScanRef.current(d); // เรียก onScan เวอร์ชันล่าสุดเสมอ
+              },
+              ()=>{}
+            );
             if(!stopped) setStatus("scanning");
           }catch(e){
-            console.warn("Scanner error:",e);
-            setStatus("error");
+            console.warn("Scanner:",e);
+            if(!stopped) setStatus(e&&e.name==="NotAllowedError"?"denied":"error");
           }
         })();
         return()=>{
@@ -673,7 +682,8 @@
             <div style={{width:"100%",maxWidth:360,borderRadius:14,overflow:"hidden",border:"2px solid #ff6b00",background:"#000",position:"relative",minHeight:160}}>
               <div id="barcode-reader" style={{width:"100%"}}></div>
               {status==="starting"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",flexDirection:"column",gap:8}}><div style={{fontSize:28}}>📷</div><div style={{fontSize:13,color:"#888"}}>กำลังเปิดกล้อง...</div></div>}
-              {status==="error"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#0d0d0d",flexDirection:"column",gap:8,padding:20}}><div style={{fontSize:28}}>❌</div><div style={{fontSize:13,color:"#ff6666",textAlign:"center"}}>กรุณาอนุญาต Camera Access</div></div>}
+              {status==="denied"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#0d0d0d",flexDirection:"column",gap:8,padding:20}}><div style={{fontSize:28}}>🔒</div><div style={{fontSize:13,color:"#ff9500",textAlign:"center",lineHeight:1.6}}>กรุณากด <strong>อนุญาต</strong> เพื่อใช้กล้อง<br/><span style={{fontSize:11,color:"#666"}}>ตั้งค่า → Safari → กล้อง → อนุญาต</span></div></div>}
+              {status==="error"&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#0d0d0d",flexDirection:"column",gap:8,padding:20}}><div style={{fontSize:28}}>❌</div><div style={{fontSize:13,color:"#ff6666",textAlign:"center"}}>ไม่สามารถเปิดกล้องได้<br/><span style={{fontSize:11,color:"#666"}}>กรุณาลองใหม่</span></div></div>}
             </div>
             {last&&<div style={{background:"rgba(255,107,0,.12)",border:"1px solid #ff6b00",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#ff9500",textAlign:"center",width:"100%",maxWidth:360}}>✅ สแกนได้: <strong>{last}</strong></div>}
             <div style={{width:"100%",maxWidth:360}}>
@@ -1166,7 +1176,7 @@
       const [cart,setCart]                        = useState([]); // [{productId,productName,productCode,qty,price,unit}]
       const [installFee,setInstallFee]            = useState("");
       const [installNote,setInstallNote]          = useState("");
-      const [cartSelectKey,setCartSelectKey]      = useState(0); // force dropdown reset
+      const [cartSelectVal,setCartSelectVal]      = useState(""); // controlled select value
 
       const [online, setOnline] = useState(navigator.onLine);
       useEffect(()=>{
@@ -1269,7 +1279,7 @@
       if(!cu) return <LoginPage users={users} onLogin={login}/>;
 
       const toast_ = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),2800); };
-      const closeModal = () => { setModal(null); setForm({}); setScanRes(null); setCart([]); setInstallFee(""); setInstallNote(""); };
+      const closeModal = () => { setModal(null); setForm({}); setScanRes(null); setCart([]); setInstallFee(""); setInstallNote(""); setCartSelectVal(""); };
 
       /* Barcode */
       const onScan = code => {
@@ -1503,15 +1513,18 @@
                     </button>
                     <div style={{position:"relative"}}>
                       <select onChange={e=>{
-                        const p=products.find(x=>x.id===parseInt(e.target.value));
+                        const val=e.target.value;
+                        setCartSelectVal(""); // reset เสมอ ไม่ว่าจะเจอสินค้าหรือไม่
+                        // รองรับทั้ง Firebase string ID และ numeric ID (Date.now)
+                        const p=products.find(x=>String(x.id)===String(val));
                         if(!p)return;
                         setCart(prev=>{
-                          const idx=prev.findIndex(i=>i.productId===p.id);
+                          const idx=prev.findIndex(i=>String(i.productId)===String(p.id));
                           if(idx>=0){const n=[...prev];n[idx]={...n[idx],qty:n[idx].qty+1};return n;}
                           return [...prev,{productId:p.id,productName:p.name,productCode:p.code,qty:1,price:p.price,unit:p.unit||"ชิ้น"}];
                         });
-                        setCartSelectKey(k=>k+1); // reset dropdown to placeholder
-                      }} key={cartSelectKey} defaultValue="" style={{width:"100%",height:"100%",padding:"11px 8px",borderRadius:10,border:"2px dashed #00aaff66",background:"rgba(0,170,255,.06)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer",appearance:"none",WebkitAppearance:"none"}}>
+                        toast_(`✅ เพิ่ม: ${p.name}`);
+                      }} value={cartSelectVal} style={{width:"100%",height:"100%",padding:"11px 8px",borderRadius:10,border:"2px dashed #00aaff66",background:"rgba(0,170,255,.06)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer",appearance:"none",WebkitAppearance:"none"}}>
                         <option value="">+ เลือกสินค้า</option>
                         {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} ({p.stock} {p.unit})</option>)}
                       </select>
