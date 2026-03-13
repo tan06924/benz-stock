@@ -16,6 +16,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -312,6 +313,82 @@
         ${w.note?`<div class="pr"><span>หมายเหตุ:</span><span>${w.note}</span></div>`:""}
         <hr class="pr-hr"/><div style="text-align:center;font-size:9pt;color:#555;margin-top:6px">ขอบคุณที่ใช้บริการ 🙏<br/>${shopName}</div>`;
       setTimeout(()=>window.print(),200);
+    }
+
+    /* ─── PDF RECEIPT DOWNLOAD ──────────────────────────────────── */
+    function downloadReceiptPDF(tx, cfg={}, products=[]) {
+      if (typeof window.jspdf === "undefined") {
+        // Fallback: print
+        printReceipt(tx, cfg);
+        return;
+      }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit:"mm", format:[80, 200], orientation:"portrait" });
+      const sName = cfg.name || "BENZ ประดับยนต์";
+      const rcpNo = `${cfg.receiptPrefix||"RCP"}-${String(tx.id).slice(-6)}`;
+      const vatRate = cfg.vatRate ?? 7;
+      const vatAmt  = vatRate > 0 ? Math.round((tx.total * vatRate / (100+vatRate)) * 100)/100 : 0;
+      const beforeVat = vatRate > 0 ? tx.total - vatAmt : tx.total;
+
+      // คำนวณต้นทุน
+      let cost = 0;
+      if (tx.items && tx.items.length > 0) {
+        tx.items.forEach(it => { const p = products.find(x=>x.id===it.productId); cost += (p?.costPrice||0)*it.qty; });
+      } else if (tx.productId) {
+        const p = products.find(x=>x.id===tx.productId); cost = (p?.costPrice||0)*(tx.qty||1);
+      }
+      const profit = tx.total - cost;
+
+      // Build items list
+      let lineItems = [];
+      if (tx.items && tx.items.length > 0) {
+        tx.items.forEach(it => lineItems.push({ name: it.productName, qty: it.qty, price: it.price, total: it.total }));
+        if ((tx.installFee||0)>0) lineItems.push({ name:`ค่าติดตั้ง${tx.installNote?` (${tx.installNote})`:""}`, qty:1, price:tx.installFee, total:tx.installFee });
+      } else {
+        lineItems.push({ name:tx.productName, qty:tx.qty, price:tx.price, total:tx.total });
+      }
+
+      // Helper: ตัดข้อความยาวให้พอดีกับกว้าง (mm)
+      const W = 72; // usable width mm
+      let y = 8;
+      const line = (text, x=4, size=9, align="left", bold=false) => {
+        doc.setFontSize(size);
+        doc.setFont("helvetica", bold?"bold":"normal");
+        doc.text(text, align==="center"?40:align==="right"?W+4:x, y, {align});
+      };
+      const nl = (h=4) => { y+=h; };
+      const hr = () => { doc.setDrawColor(180); doc.line(4, y, W+4, y); nl(3); };
+
+      line(sName, 4, 13, "center", true); nl(5);
+      if(cfg.address){ line(cfg.address,4,7,"center"); nl(4); }
+      if(cfg.phone){ line(`โทร: ${cfg.phone}`,4,7,"center"); nl(4); }
+      line("ใบเสร็จรับเงิน",4,8,"center"); nl(4);
+      hr();
+      line(`เลขที่: ${rcpNo}`,4,8); nl(4);
+      line(`วันที่: ${thDate(tx.date)} ${tx.time||""}`,4,8); nl(4);
+      if(tx.custName){ line(`ลูกค้า: ${tx.custName}`,4,8); nl(4); }
+      if(tx.custPlate){ line(`ทะเบียน: ${tx.custPlate}`,4,8); nl(4); }
+      hr();
+      lineItems.forEach(it => {
+        line(it.name.substring(0,30),4,8,false); nl(4);
+        line(`  ${it.qty} x ฿${fmt(it.price)}`,4,7); line(`฿${fmt(it.total)}`,4,7,"right"); nl(4);
+      });
+      hr();
+      if(vatRate>0){
+        line(`ราคาก่อน VAT`,4,7); line(`฿${fmt(beforeVat)}`,4,7,"right"); nl(4);
+        line(`VAT ${vatRate}%`,4,7); line(`฿${fmt(vatAmt)}`,4,7,"right"); nl(4);
+        hr();
+      }
+      line(`รวมทั้งสิ้น`,4,10,false,true); line(`฿${fmt(tx.total)}`,4,10,"right",true); nl(5);
+      if(cost>0){
+        hr();
+        line(`ต้นทุน: ฿${fmt(cost)}  กำไร: ฿${fmt(profit)}`,4,7,"center"); nl(4);
+      }
+      hr();
+      line("ขอบคุณที่ใช้บริการ",4,8,"center"); nl(4);
+      line(sName,4,8,"center"); nl(4);
+
+      doc.save(`ใบเสร็จ_${rcpNo}_${today()}.pdf`);
     }
 
     /* ─── EXCEL EXPORT ──────────────────────────────────────────── */
@@ -1515,8 +1592,8 @@
 
           <div style={{padding:"0 16px"}}>
             {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
-            {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
-            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx} onDelete={delTx} userRole={cu.role}/>}
+            {tab==="สต๊อก"   &&<StockTab products={filtProd.length<products.length?filtProd:products} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
+            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx} onDelete={delTx} userRole={cu.role} products={products} shopConfig={shopConfig}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
             {tab==="ลูกค้า"  &&<CustomerTab transactions={transactions} warranties={warranties} products={products}/>}
             {tab==="รายงาน"  &&<ReportTab online={online} reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
@@ -2094,6 +2171,13 @@
     }
 
     function StockTab({products,searchQ,setSearchQ,setEditP,lowStock,openAdd,openScanner,setShowImport,doExport,setShowBarcode}) {
+      const [catFilter,setCatFilter]=useState("ทั้งหมด");
+      const cats=["ทั้งหมด",...[...new Set(products.map(p=>p.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"th"))];
+      const filtered = products.filter(p=>{
+        const matchQ=!searchQ||(p.name.toLowerCase().includes(searchQ.toLowerCase())||p.code.toLowerCase().includes(searchQ.toLowerCase())||p.category.toLowerCase().includes(searchQ.toLowerCase()));
+        const matchCat=catFilter==="ทั้งหมด"||p.category===catFilter;
+        return matchQ&&matchCat;
+      });
       return (
         <div style={{paddingTop:14}}>
           <div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -2101,14 +2185,22 @@
               style={{flex:1,padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
             <button onClick={openScanner} style={{padding:"10px 14px",borderRadius:10,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.08)",color:"#ff9500",cursor:"pointer",fontSize:18}} title="สแกนค้นหา">📷</button>
           </div>
+          {/* Category filter pills */}
+          {cats.length>1&&<div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2,marginBottom:10}}>
+            {cats.map(c=>(
+              <button key={c} onClick={()=>setCatFilter(c)} style={{flexShrink:0,padding:"5px 11px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:catFilter===c?"#ff6b00":"#1a1a1a",color:catFilter===c?"#fff":"#666"}}>
+                {c}{c!=="ทั้งหมด"?` (${products.filter(p=>p.category===c).length})`:` (${products.length})`}
+              </button>
+            ))}
+          </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
             <button onClick={openAdd} style={{padding:"9px 0",borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ เพิ่มสินค้า</button>
             <button onClick={()=>setShowBarcode(true)} style={{padding:"9px 0",borderRadius:8,border:"1px solid #ffcc0044",background:"rgba(255,204,0,.08)",color:"#ffcc00",fontSize:12,fontWeight:700,cursor:"pointer"}}>🏷️ พิมพ์บาร์โค้ด</button>
             <button onClick={()=>setShowImport(true)} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00aaff44",background:"rgba(0,170,255,.08)",color:"#00aaff",fontSize:12,fontWeight:700,cursor:"pointer"}}>📂 Import</button>
             <button onClick={doExport} style={{padding:"9px 0",borderRadius:8,border:"1px solid #00cc6644",background:"rgba(0,204,102,.08)",color:"#00cc66",fontSize:12,fontWeight:700,cursor:"pointer"}}>📊 Export</button>
           </div>
-          <div style={{fontSize:11,color:"#555",marginBottom:8}}>{products.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length}</span>}</div>
-          {products.map(p=>{
+          <div style={{fontSize:11,color:"#555",marginBottom:8}}>{filtered.length} รายการ {lowStock.length>0&&<span style={{color:"#ff3333"}}>| ⚠️ ต่ำกว่าเกณฑ์ {lowStock.length}</span>}</div>
+          {filtered.map(p=>{
             const isLow=p.stock<p.minStock;
             return <div key={p.id} onClick={()=>setEditP({...p})} style={{background:isLow?"linear-gradient(135deg,#1a0808,#160808)":"#161616",border:`1px solid ${isLow?"#ff333344":"#2a2a2a"}`,borderRadius:10,padding:"11px 14px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{flex:1}}>
@@ -2128,20 +2220,87 @@
               </div>
             </div>;
           })}
+          {filtered.length===0&&<Empty msg={searchQ||catFilter!=="ทั้งหมด"?"ไม่พบสินค้า":"ยังไม่มีสินค้า"}/>}
         </div>
       );
     }
 
-    function TxTab({transactions,setModal,printRcp,setScanner,setTaxInvoiceTx,onDelete,userRole}) {
+    function TxTab({transactions,setModal,printRcp,setScanner,setTaxInvoiceTx,onDelete,userRole,products,shopConfig}) {
       const [filter,setFilter]=useState("all");
-      const list=filter==="all"?transactions:transactions.filter(t=>t.type===filter);
+      const [search,setSearch]=useState("");
+      const [dateFrom,setDateFrom]=useState("");
+      const [dateTo,setDateTo]=useState("");
+      const [showFilter,setShowFilter]=useState(false);
+
+      const list = transactions.filter(t=>{
+        if(filter!=="all"&&t.type!==filter) return false;
+        if(dateFrom&&t.date<dateFrom) return false;
+        if(dateTo&&t.date>dateTo) return false;
+        if(search){
+          const q=search.toLowerCase();
+          const matchName=(t.productName||"").toLowerCase().includes(q);
+          const matchCust=(t.custName||"").toLowerCase().includes(q);
+          const matchPlate=(t.custPlate||"").toLowerCase().includes(q);
+          const matchPhone=(t.custPhone||"").includes(q);
+          if(!matchName&&!matchCust&&!matchPlate&&!matchPhone) return false;
+        }
+        return true;
+      });
+
+      const hasFilter = search||dateFrom||dateTo;
+      const outList = list.filter(t=>t.type==="out");
+      const totalRev = outList.reduce((s,t)=>s+t.total,0);
+      const totalCost = outList.reduce((s,t)=>{
+        if(t.items) return s+t.items.reduce((ss,it)=>{ const p=products.find(x=>x.id===it.productId); return ss+(p?.costPrice||0)*it.qty; },0);
+        const p=products.find(x=>x.id===t.productId); return s+(p?.costPrice||0)*(t.qty||1);
+      },0);
+
       return (
         <div style={{paddingTop:14}}>
-          <div style={{display:"flex",gap:8,marginBottom:12}}>
+          {/* Filter bar */}
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
             {[["all","ทั้งหมด"],["out","การขาย"],["in","รับเข้า"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFilter(v)} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",background:filter===v?"#ff6b00":"#1a1a1a",color:filter===v?"#fff":"#666",fontSize:12,fontWeight:600}}>{l}</button>
             ))}
+            <button onClick={()=>setShowFilter(f=>!f)} style={{padding:"8px 12px",borderRadius:8,border:`1px solid ${hasFilter?"#ff6b00":"#333"}`,background:hasFilter?"rgba(255,107,0,.15)":"#1a1a1a",color:hasFilter?"#ff9500":"#666",cursor:"pointer",fontSize:14,fontWeight:700}} title="กรองขั้นสูง">🔍{hasFilter?" ✓":""}</button>
           </div>
+
+          {/* Advanced search panel */}
+          {showFilter&&<div style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:12,padding:12,marginBottom:12,display:"flex",flexDirection:"column",gap:8}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหา ชื่อสินค้า / ลูกค้า / ทะเบียน / เบอร์..."
+              style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>ตั้งแต่วันที่</div>
+                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>ถึงวันที่</div>
+                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:12}}/>
+              </div>
+            </div>
+            {hasFilter&&<button onClick={()=>{setSearch("");setDateFrom("");setDateTo("");}} style={{width:"100%",padding:"7px",borderRadius:7,border:"1px solid #333",background:"#1a1a1a",color:"#888",fontSize:11,cursor:"pointer"}}>✕ ล้างตัวกรอง</button>}
+          </div>}
+
+          {/* Summary (only when filter active and has sales) */}
+          {(hasFilter||filter==="out")&&outList.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+            <div style={{background:"#161616",border:"1px solid #ff6b0033",borderRadius:10,padding:"9px 10px",borderLeft:"3px solid #ff6b00"}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#ff9500"}}>฿{fmt(totalRev)}</div>
+              <div style={{fontSize:9,color:"#555"}}>รายได้รวม</div>
+            </div>
+            <div style={{background:"#161616",border:"1px solid #ff333333",borderRadius:10,padding:"9px 10px",borderLeft:"3px solid #ff3333"}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#ff6666"}}>฿{fmt(totalCost)}</div>
+              <div style={{fontSize:9,color:"#555"}}>ต้นทุน</div>
+            </div>
+            <div style={{background:"#161616",border:"1px solid #00cc6633",borderRadius:10,padding:"9px 10px",borderLeft:"3px solid #00cc66"}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#00cc66"}}>฿{fmt(totalRev-totalCost)}</div>
+              <div style={{fontSize:9,color:"#555"}}>กำไร</div>
+            </div>
+          </div>}
+
+          {/* Action buttons */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:12}}>
             <ABtn icon="📥" label="รับสินค้า" color="#00cc66" onClick={()=>setModal("in")}/>
             <ABtn icon="📤" label="บันทึกขาย" color="#ff6b00" onClick={()=>setModal("out")}/>
@@ -2152,8 +2311,15 @@
               <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนขาย</span>
             </button>
           </div>
-          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null} onTax={t.type==="out"?()=>setTaxInvoiceTx(t):null} onDelete={onDelete} userRole={userRole}/>)}
-          {list.length===0&&<Empty msg="ไม่มีรายการ"/>}
+
+          {/* List count */}
+          <div style={{fontSize:11,color:"#555",marginBottom:8}}>{list.length} รายการ{hasFilter?" (กรองแล้ว)":""}</div>
+
+          {list.map(t=><TxRow key={t.id} tx={t} products={products} shopConfig={shopConfig}
+            onPrint={t.type==="out"?()=>printRcp(t):null}
+            onTax={t.type==="out"?()=>setTaxInvoiceTx(t):null}
+            onDelete={onDelete} userRole={userRole}/>)}
+          {list.length===0&&<Empty msg={hasFilter?"ไม่พบรายการที่ตรงเงื่อนไข":"ไม่มีรายการ"}/>}
         </div>
       );
     }
@@ -2239,109 +2405,152 @@
     }
 
     function ReportTab({online,reportDate,setRDate,tSales,tIn,tRev,transactions,products,warranties,users,doExport,setShowImport,setShowBackup}) {
-      const last7=Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0),label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"})}; });
-      const maxRev=Math.max(...last7.map(d=>d.rev),1);
-      const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
+      const [chartMode,setChartMode]=useState("7d"); // "7d" | "30d" | "monthly"
 
+      // คำนวณข้อมูลกราฟตาม mode
+      const chartData = (() => {
+        if(chartMode==="7d"){
+          return Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const ds=d.toISOString().slice(0,10); return{ds,label:d.toLocaleDateString("th-TH",{day:"numeric",month:"short"}),rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0)}; });
+        } else if(chartMode==="30d"){
+          return Array.from({length:30},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(29-i)); const ds=d.toISOString().slice(0,10); return{ds,label:i%5===0||i===29?d.toLocaleDateString("th-TH",{day:"numeric",month:"short"}):"",rev:transactions.filter(t=>t.date===ds&&t.type==="out").reduce((s,t)=>s+t.total,0)}; });
+        } else {
+          // monthly: ย้อนหลัง 6 เดือน
+          return Array.from({length:6},(_,i)=>{ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-(5-i)); const ym=d.toISOString().slice(0,7); return{ds:ym,label:d.toLocaleDateString("th-TH",{month:"short",year:"2-digit"}),rev:transactions.filter(t=>t.date.startsWith(ym)&&t.type==="out").reduce((s,t)=>s+t.total,0)}; });
+        }
+      })();
+      const maxRev=Math.max(...chartData.map(d=>d.rev),1);
+
+      const expW=warranties.filter(w=>wStatus(w)==="exp"), warnW=warranties.filter(w=>wStatus(w)==="warn");
       const tCost = tSales.reduce((s,tx)=>{
         if(tx.items) return s+tx.items.reduce((ss,it)=>{ const p=products.find(x=>x.id===it.productId); return ss+(p?.costPrice||0)*it.qty; },0);
         const p=products.find(x=>x.id===tx.productId); return s+(p?.costPrice||0)*tx.qty;
       },0);
       const tProfit=tRev-tCost, tMargin=tRev>0?Math.round((tProfit/tRev)*100):0;
 
+      // Top สินค้าขายดีในเดือนนี้
+      const thisMonth = new Date().toISOString().slice(0,7);
+      const monthSales = transactions.filter(t=>t.date.startsWith(thisMonth)&&t.type==="out");
+      const prodSaleMap = {};
+      monthSales.forEach(t=>{
+        const items = t.items&&t.items.length>0 ? t.items : (t.productId?[{productId:t.productId,productName:t.productName,qty:t.qty,total:t.total}]:[]);
+        items.forEach(it=>{ if(!prodSaleMap[it.productName]) prodSaleMap[it.productName]={name:it.productName,qty:0,rev:0}; prodSaleMap[it.productName].qty+=it.qty; prodSaleMap[it.productName].rev+=it.total; });
+      });
+      const topProds = Object.values(prodSaleMap).sort((a,b)=>b.rev-a.rev).slice(0,5);
+
       // Firestore info
       const storageInfo = (() => {
         try {
           const toBytes = obj => new Blob([JSON.stringify(obj)]).size;
-          const pBytes  = toBytes(products);
-          const tBytes  = toBytes(transactions);
-          const wBytes  = toBytes(warranties);
-          const uBytes  = toBytes(users||[]);
-          const used    = pBytes + tBytes + wBytes + uBytes;
-          const fmtB    = b => b>1024*1024?`${(b/1024/1024).toFixed(2)} MB`:b>1024?`${(b/1024).toFixed(1)} KB`:`${b} B`;
-          return { used, fmtB,
-            counts: {
-              products: products.length,
-              transactions: transactions.length,
-              warranties: warranties.length,
-            },
-            breakdown:[
-              {label:"📦 สินค้า",       bytes:pBytes, count:products.length},
-              {label:"🔄 ประวัติขาย/รับ",bytes:tBytes, count:transactions.length},
-              {label:"🛡️ ประกัน",       bytes:wBytes, count:warranties.length},
-              {label:"👤 ผู้ใช้",        bytes:uBytes, count:(users||[]).length},
-            ]
-          };
+          const pBytes=toBytes(products), tBytes=toBytes(transactions), wBytes=toBytes(warranties), uBytes=toBytes(users||[]);
+          const used=pBytes+tBytes+wBytes+uBytes;
+          const fmtB=b=>b>1024*1024?`${(b/1024/1024).toFixed(2)} MB`:b>1024?`${(b/1024).toFixed(1)} KB`:`${b} B`;
+          return { used, fmtB, breakdown:[{label:"📦 สินค้า",bytes:pBytes,count:products.length},{label:"🔄 ประวัติขาย/รับ",bytes:tBytes,count:transactions.length},{label:"🛡️ ประกัน",bytes:wBytes,count:warranties.length},{label:"👤 ผู้ใช้",bytes:uBytes,count:(users||[]).length}] };
         } catch { return null; }
       })();
+
       return (
         <div style={{paddingTop:14}}>
+          {/* Date picker */}
           <input type="date" value={reportDate} onChange={e=>setRDate(e.target.value)}
             style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13,marginBottom:12}}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-            <Stat icon="💰" label="รายได้"    val={`฿${fmt(tRev)}`}     color="#ff6b00" sm/>
-            <Stat icon="🛒" label="ขาย"       val={`${tSales.length}`}   color="#00aaff" sm/>
-            <Stat icon="📥" label="รับสินค้า" val={`${tIn.length}`}      color="#00cc66" sm/>
+
+          {/* Stats วันที่เลือก */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+            <Stat icon="💰" label="รายได้" val={`฿${fmt(tRev)}`} color="#ff6b00" sm/>
+            <Stat icon="🛒" label="บิลขาย" val={`${tSales.length}`} color="#00aaff" sm/>
+            <Stat icon="📥" label="รับสินค้า" val={`${tIn.length}`} color="#00cc66" sm/>
           </div>
+
+          {/* กำไร */}
           {tCost>0&&<div style={{background:"#0a1a0a",border:"1px solid #00cc6633",borderRadius:12,padding:14,marginBottom:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:8}}>📈 กำไรขั้นต้น — {thDate(reportDate)}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:8}}>📈 กำไรขั้นต้น — {thDate(reportDate)}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
               <div><div style={{fontSize:14,fontWeight:800,color:"#ff9500"}}>฿{fmt(tRev)}</div><div style={{fontSize:9,color:"#555"}}>รายได้</div></div>
               <div><div style={{fontSize:14,fontWeight:800,color:"#ff6666"}}>฿{fmt(tCost)}</div><div style={{fontSize:9,color:"#555"}}>ต้นทุน</div></div>
               <div><div style={{fontSize:14,fontWeight:800,color:"#00cc66"}}>฿{fmt(tProfit)}</div><div style={{fontSize:9,color:"#555"}}>กำไร ({tMargin}%)</div></div>
             </div>
+            <div style={{marginTop:10,height:6,borderRadius:4,background:"#1a1a1a",overflow:"hidden"}}>
+              <div style={{height:"100%",background:"linear-gradient(90deg,#00cc66,#00ff88)",width:`${tMargin}%`,transition:"width .4s",borderRadius:4}}/>
+            </div>
+            <div style={{fontSize:9,color:"#444",marginTop:3,textAlign:"right"}}>อัตรากำไร {tMargin}%</div>
           </div>}
-          <SecTitle>ยอดขาย 7 วันย้อนหลัง</SecTitle>
-          <div style={{background:"#111",borderRadius:12,padding:14,marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"flex-end",gap:5,height:70}}>
-              {last7.map(d=>(
-                <div key={d.ds} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                  <div style={{width:"100%",borderRadius:"4px 4px 0 0",background:d.ds===reportDate?"#ff6b00":"#2a2a2a",height:`${d.rev>0?Math.max((d.rev/maxRev)*55,4):3}px`,transition:"height .3s"}}/>
-                  <div style={{fontSize:8,color:"#555",textAlign:"center",lineHeight:1.2}}>{d.label}</div>
-                </div>
+
+          {/* กราฟยอดขาย */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <SecTitle>กราฟยอดขาย</SecTitle>
+            <div style={{display:"flex",gap:4}}>
+              {[["7d","7 วัน"],["30d","30 วัน"],["monthly","รายเดือน"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setChartMode(v)} style={{padding:"4px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,background:chartMode===v?"#ff6b00":"#1a1a1a",color:chartMode===v?"#fff":"#555"}}>{l}</button>
               ))}
             </div>
           </div>
+          <div style={{background:"#111",borderRadius:12,padding:"14px 10px",marginBottom:14,border:"1px solid #1a1a1a"}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:chartMode==="30d"?2:4,height:80}}>
+              {chartData.map((d,i)=>{
+                const h=d.rev>0?Math.max((d.rev/maxRev)*64,4):2;
+                const isToday=d.ds===today()||d.ds===today().slice(0,7);
+                const isSelected=d.ds===reportDate||d.ds===reportDate.slice(0,7);
+                return (
+                  <div key={i} onClick={()=>chartMode!=="monthly"&&setRDate(d.ds)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:chartMode!=="monthly"?"pointer":"default"}}>
+                    {d.rev>0&&<div style={{fontSize:7,color:"#ff9500",textAlign:"center",lineHeight:1}}>{d.rev>999?`${(d.rev/1000).toFixed(1)}K`:fmt(d.rev)}</div>}
+                    <div style={{width:"100%",borderRadius:"3px 3px 0 0",background:isSelected?"#ff6b00":isToday?"#ff9500":"#2a2a2a",height:`${h}px`,transition:"height .3s",minHeight:2}}/>
+                    {d.label&&<div style={{fontSize:7,color:"#444",textAlign:"center",lineHeight:1.2,whiteSpace:"nowrap"}}>{d.label}</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{textAlign:"center",fontSize:9,color:"#333",marginTop:4}}>{chartMode==="7d"?"7 วันล่าสุด":chartMode==="30d"?"30 วันล่าสุด":"6 เดือนล่าสุด"}</div>
+          </div>
+
+          {/* สินค้าขายดีเดือนนี้ */}
+          {topProds.length>0&&<>
+            <SecTitle>🏆 สินค้าขายดีเดือนนี้</SecTitle>
+            <div style={{background:"#111",borderRadius:12,padding:12,marginBottom:14,border:"1px solid #1a1a1a",display:"flex",flexDirection:"column",gap:6}}>
+              {topProds.map((p,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontSize:12,fontWeight:800,color:i===0?"#ffcc00":i===1?"#aaa":i===2?"#cc7722":"#555",width:16,textAlign:"center"}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#ddd",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                    <div style={{height:4,borderRadius:2,background:"#1a1a1a",marginTop:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",background:"linear-gradient(90deg,#ff6b00,#ff9500)",width:`${Math.round((p.rev/topProds[0].rev)*100)}%`,borderRadius:2}}/>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#ff9500"}}>฿{fmt(p.rev)}</div>
+                    <div style={{fontSize:9,color:"#555"}}>{p.qty} ชิ้น</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>}
+
+          {/* สรุปประกัน */}
           <SecTitle>สรุปประกัน</SecTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
             <Stat icon="🛡️" label="ทั้งหมด" val={`${warranties.length}`} color="#00aaff" sm/>
-            <Stat icon="⚠️" label="ใกล้หมด" val={`${warnW.length}`}      color="#ffcc00" sm/>
-            <Stat icon="❌" label="หมดแล้ว" val={`${expW.length}`}        color="#ff3333" sm/>
+            <Stat icon="⚠️" label="ใกล้หมด" val={`${warnW.length}`} color="#ffcc00" sm/>
+            <Stat icon="❌" label="หมดแล้ว" val={`${expW.length}`} color="#ff3333" sm/>
           </div>
+
+          {/* รายการขายวันที่เลือก */}
           <SecTitle>รายการขาย — {thDate(reportDate)}</SecTitle>
-          {tSales.map(t=><TxRow key={t.id} tx={t}/>)}
+          {tSales.map(t=><TxRow key={t.id} tx={t} products={products}/>)}
           {tSales.length===0&&<Empty msg="ไม่มีรายการขายในวันที่เลือก"/>}
+
+          {/* จัดการข้อมูล */}
           <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
             <SecTitle>จัดการข้อมูล</SecTitle>
-
-            {/* Sync Status Indicator */}
             <div style={{background:"linear-gradient(135deg,#0a1a2e,#1a3a4a)",borderRadius:12,padding:14,border:"1px solid #00ccff33",marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:16}}>🔄</span>
-                  <div style={{fontSize:13,fontWeight:700}}>สถานะการซิงค์ข้อมูล</div>
-                </div>
-                <div style={{fontSize:11,color:"#00ff88",fontWeight:700,background:"rgba(0,255,136,.1)",padding:"3px 10px",borderRadius:20,border:"1px solid #00ff8844"}}>
-                  {online ? "☁️ ซิงค์กับคลาว์" : "⚠️ ออฟไลน์"}
-                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>🔄</span><div style={{fontSize:13,fontWeight:700}}>สถานะการซิงค์ข้อมูล</div></div>
+                <div style={{fontSize:11,color:"#00ff88",fontWeight:700,background:"rgba(0,255,136,.1)",padding:"3px 10px",borderRadius:20,border:"1px solid #00ff8844"}}>{online?"☁️ ซิงค์กับคลาว์":"⚠️ ออฟไลน์"}</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"rgba(0,204,102,.08)",borderRadius:8,border:"1px solid #00cc6633"}}>
-                  <span style={{fontSize:12,color:"#00cc66"}}>✅ ข้อมูลซิงค์กับทุกเครื่อง</span>
-                  <span style={{fontSize:10,color:"#00cc66"}}>Real-time</span>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#161616",borderRadius:8}}>
-                  <span style={{fontSize:11,color:"#888"}}>เครื่องที่เชื่อมต่อ</span>
-                  <span style={{fontSize:12,fontWeight:700,color:"#00aaff"}}>Active</span>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#161616",borderRadius:8}}>
-                  <span style={{fontSize:11,color:"#888"}}>ล่าสุดซิงค์เมื่อ</span>
-                  <span style={{fontSize:11,color:"#aaa"}}>Just now</span>
+                  <span style={{fontSize:12,color:"#00cc66"}}>✅ ข้อมูลซิงค์กับทุกเครื่อง</span><span style={{fontSize:10,color:"#00cc66"}}>Real-time</span>
                 </div>
               </div>
             </div>
-
-            {/* Storage indicator */}
             {storageInfo&&<div style={{background:"#0d0d0d",borderRadius:12,padding:14,border:"1px solid #ff6b0022",marginBottom:4}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div style={{fontSize:13,fontWeight:700}}>☁️ ข้อมูลบน Firebase</div>
@@ -2351,10 +2560,7 @@
                 {storageInfo.breakdown.map(item=>(
                   <div key={item.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"#161616",borderRadius:8}}>
                     <span style={{fontSize:12,color:"#888"}}>{item.label}</span>
-                    <div style={{textAlign:"right"}}>
-                      <span style={{fontSize:13,fontWeight:700,color:"#ff9500"}}>{item.count} รายการ</span>
-                      <span style={{fontSize:10,color:"#444",marginLeft:6}}>{storageInfo.fmtB(item.bytes)}</span>
-                    </div>
+                    <div style={{textAlign:"right"}}><span style={{fontSize:13,fontWeight:700,color:"#ff9500"}}>{item.count} รายการ</span><span style={{fontSize:10,color:"#444",marginLeft:6}}>{storageInfo.fmtB(item.bytes)}</span></div>
                   </div>
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 10px",borderTop:"1px solid #222",marginTop:2}}>
@@ -2415,18 +2621,28 @@
         <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span>
       </button>;
     }
-    function TxRow({tx,onPrint,onTax,onDelete,userRole}) {
+    function TxRow({tx,onPrint,onTax,onDelete,userRole,products=[],shopConfig={}}) {
       const [expanded,setExpanded]=useState(false);
       const isOut=tx.type==="out";
       const isMulti=tx.items&&tx.items.length>1;
       const hasInstall=(tx.installFee||0)>0;
       const isInstallOnly=tx.installOnly===true;
-      const canExpand=isOut; // แสดงรายละเอียดได้เฉพาะบิลขาย
+      const canExpand=isOut;
 
       // รายการสินค้าในบิล
       const lineItems = tx.items && tx.items.length>0
         ? tx.items
-        : (!isInstallOnly && tx.productId ? [{productName:tx.productName,qty:tx.qty,price:tx.price,total:tx.total}] : []);
+        : (!isInstallOnly && tx.productId ? [{productName:tx.productName,qty:tx.qty,price:tx.price,total:tx.total,productId:tx.productId}] : []);
+
+      // คำนวณต้นทุน + กำไรต่อบิล
+      const billCost = isOut ? (()=>{
+        let c=0;
+        if(tx.items&&tx.items.length>0){ tx.items.forEach(it=>{ const p=products.find(x=>x.id===it.productId); c+=(p?.costPrice||0)*it.qty; }); }
+        else if(tx.productId){ const p=products.find(x=>x.id===tx.productId); c=(p?.costPrice||0)*(tx.qty||1); }
+        return c;
+      })() : 0;
+      const billProfit = tx.total - billCost;
+      const hasProfit = billCost > 0;
 
       return <div style={{background:"#161616",borderRadius:10,marginBottom:8,border:`1px solid ${expanded&&isOut?"#ff6b0044":isOut?"#ff6b0018":"#00cc6618"}`,overflow:"hidden",transition:"border-color .2s"}}>
         {/* แถวหลัก */}
@@ -2449,6 +2665,7 @@
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{isInstallOnly?"—":tx.qty}</div>
               <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
+              {hasProfit&&isOut&&<div style={{fontSize:9,color:"#00cc6688"}}>กำไร ฿{fmt(billProfit)}</div>}
             </div>
             {canExpand&&<div style={{fontSize:13,color:expanded?"#ff9500":"#444",transition:"transform .2s",transform:expanded?"rotate(180deg)":"rotate(0deg)",marginLeft:2}}>▾</div>}
             {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
@@ -2459,7 +2676,6 @@
 
         {/* แผงรายละเอียดบิล (ขยายได้) */}
         {expanded&&isOut&&<div style={{borderTop:"1px solid #2a2a2a",background:"#0f0f0f",padding:"10px 14px 12px"}}>
-          {/* หัวข้อ */}
           <div style={{fontSize:10,fontWeight:700,color:"#ff6b00",letterSpacing:1,marginBottom:8}}>📋 รายการในบิล</div>
 
           {/* ตารางสินค้า */}
@@ -2469,16 +2685,22 @@
               <div style={{fontSize:9,color:"#444",fontWeight:700,textAlign:"right"}}>จำนวน</div>
               <div style={{fontSize:9,color:"#444",fontWeight:700,textAlign:"right"}}>รวม</div>
             </div>
-            {lineItems.map((it,i)=>(
-              <div key={i} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"3px 10px",padding:"5px 0",borderTop:i>0?"1px solid #1a1a1a":"none"}}>
-                <div>
-                  <div style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{it.productName}</div>
-                  {it.price&&<div style={{fontSize:10,color:"#555"}}>฿{fmt(it.price)} / ชิ้น</div>}
+            {lineItems.map((it,i)=>{
+              const cp = products.find(x=>x.id===it.productId)?.costPrice||0;
+              const itProfit = it.total - cp*it.qty;
+              return (
+                <div key={i} style={{padding:"5px 0",borderTop:i>0?"1px solid #1a1a1a":"none"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"3px 10px"}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{it.productName}</div>
+                      <div style={{fontSize:10,color:"#555"}}>฿{fmt(it.price)} / ชิ้น{cp>0?<span style={{color:"#00cc6677",marginLeft:4}}>กำไร ฿{fmt(itProfit)}</span>:null}</div>
+                    </div>
+                    <div style={{fontSize:12,color:"#aaa",textAlign:"right",alignSelf:"center"}}>×{it.qty}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#ff9500",textAlign:"right",alignSelf:"center"}}>฿{fmt(it.total)}</div>
+                  </div>
                 </div>
-                <div style={{fontSize:12,color:"#aaa",textAlign:"right",alignSelf:"center"}}>×{it.qty}</div>
-                <div style={{fontSize:13,fontWeight:700,color:"#ff9500",textAlign:"right",alignSelf:"center"}}>฿{fmt(it.total)}</div>
-              </div>
-            ))}
+              );
+            })}
           </>}
 
           {/* ค่าติดตั้ง */}
@@ -2487,22 +2709,39 @@
             <div style={{fontSize:13,fontWeight:700,color:"#00aaff",textAlign:"right"}}>฿{fmt(tx.installFee)}</div>
           </div>}
 
-          {/* บิลติดตั้งอย่างเดียว */}
           {isInstallOnly&&!hasInstall&&<div style={{fontSize:12,color:"#aa66ff",padding:"4px 0"}}>🔧 ค่าติดตั้ง (ลูกค้านำสินค้ามาเอง)</div>}
 
-          {/* ยอดรวม */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid #333",marginTop:6,paddingTop:8}}>
-            <span style={{fontSize:11,color:"#666"}}>ยอดรวมทั้งบิล</span>
-            <span style={{fontSize:16,fontWeight:800,color:"#ff9500"}}>฿{fmt(tx.total)}</span>
+          {/* ยอดรวม + กำไร */}
+          <div style={{borderTop:"1px solid #333",marginTop:6,paddingTop:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#666"}}>ยอดรวมทั้งบิล</span>
+              <span style={{fontSize:16,fontWeight:800,color:"#ff9500"}}>฿{fmt(tx.total)}</span>
+            </div>
+            {hasProfit&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
+              <div style={{background:"rgba(255,50,50,.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#ff6666"}}>฿{fmt(billCost)}</div>
+                <div style={{fontSize:9,color:"#555"}}>ต้นทุน</div>
+              </div>
+              <div style={{background:"rgba(0,204,102,.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#00cc66"}}>฿{fmt(billProfit)}</div>
+                <div style={{fontSize:9,color:"#555"}}>กำไร ({tx.total>0?Math.round(billProfit/tx.total*100):0}%)</div>
+              </div>
+            </div>}
           </div>
 
-          {/* ข้อมูลเพิ่มเติม */}
+          {/* ข้อมูลลูกค้า */}
           {(tx.custName||tx.custPhone||tx.custPlate||tx.note)&&<div style={{marginTop:8,padding:"8px 10px",background:"#161616",borderRadius:8,display:"flex",flexDirection:"column",gap:3}}>
             {tx.custName&&<div style={{fontSize:11,color:"#888"}}>👤 {tx.custName}</div>}
             {tx.custPhone&&<div style={{fontSize:11,color:"#888"}}>📞 {tx.custPhone}</div>}
             {tx.custPlate&&<div style={{fontSize:11,color:"#00aaff",fontFamily:"monospace"}}>🚗 {tx.custPlate}</div>}
             {tx.note&&<div style={{fontSize:11,color:"#666"}}>📝 {tx.note}</div>}
           </div>}
+
+          {/* ปุ่ม PDF */}
+          <button onClick={e=>{e.stopPropagation();downloadReceiptPDF(tx,shopConfig,products);}}
+            style={{width:"100%",marginTop:10,padding:"9px",borderRadius:8,border:"1px solid #aa66ff44",background:"rgba(170,102,255,.08)",color:"#aa66ff",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            ⬇️ ดาวน์โหลดใบเสร็จ PDF
+          </button>
         </div>}
       </div>;
     }
