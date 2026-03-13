@@ -2416,12 +2416,21 @@
       </button>;
     }
     function TxRow({tx,onPrint,onTax,onDelete,userRole}) {
+      const [expanded,setExpanded]=useState(false);
       const isOut=tx.type==="out";
       const isMulti=tx.items&&tx.items.length>1;
       const hasInstall=(tx.installFee||0)>0;
       const isInstallOnly=tx.installOnly===true;
-      return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+      const canExpand=isOut; // แสดงรายละเอียดได้เฉพาะบิลขาย
+
+      // รายการสินค้าในบิล
+      const lineItems = tx.items && tx.items.length>0
+        ? tx.items
+        : (!isInstallOnly && tx.productId ? [{productName:tx.productName,qty:tx.qty,price:tx.price,total:tx.total}] : []);
+
+      return <div style={{background:"#161616",borderRadius:10,marginBottom:8,border:`1px solid ${expanded&&isOut?"#ff6b0044":isOut?"#ff6b0018":"#00cc6618"}`,overflow:"hidden",transition:"border-color .2s"}}>
+        {/* แถวหลัก */}
+        <div onClick={()=>canExpand&&setExpanded(e=>!e)} style={{padding:"10px 12px",cursor:canExpand?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div style={{display:"flex",gap:9,alignItems:"flex-start",flex:1}}>
             <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isInstallOnly?"🔧":isOut?"📤":"📥"}</div>
             <div style={{flex:1,minWidth:0}}>
@@ -2431,8 +2440,8 @@
                 {isInstallOnly&&<span style={{fontSize:9,background:"rgba(170,102,255,.25)",color:"#aa66ff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 นำมาเอง</span>}
                 {hasInstall&&!isInstallOnly&&<span style={{fontSize:9,background:"rgba(0,170,255,.2)",color:"#00aaff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 ค่าติดตั้ง</span>}
               </div>
-              <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
-              {tx.custName&&<div style={{fontSize:9,color:"#00aaff66"}}>👤 {tx.custName}{tx.custPlate?` · ${tx.custPlate}`:""}</div>}
+              <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""}{tx.note?` · ${tx.note}`:""}</div>
+              {tx.custName&&<div style={{fontSize:9,color:"#00aaff99",marginTop:1}}>👤 {tx.custName}{tx.custPlate?` · ${tx.custPlate}`:""}</div>}
               {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>🖊️ {tx.createdBy}</div>}
             </div>
           </div>
@@ -2441,22 +2450,58 @@
               <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{isInstallOnly?"—":tx.qty}</div>
               <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
             </div>
+            {canExpand&&<div style={{fontSize:13,color:expanded?"#ff9500":"#444",transition:"transform .2s",transform:expanded?"rotate(180deg)":"rotate(0deg)",marginLeft:2}}>▾</div>}
             {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
             {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄</button>}
             {onDelete&&(userRole==="admin"||!userRole)&&<button onClick={e=>{e.stopPropagation();onDelete(tx);}} style={{background:"#1a0000",border:"1px solid #cc222244",color:"#ff4444",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}} title="ลบรายการ">🗑️</button>}
           </div>
         </div>
-        {/* Sub-item list for multi-item bills */}
-        {isMulti&&<div style={{marginTop:8,paddingLeft:43,display:"flex",flexDirection:"column",gap:3}}>
-          {tx.items.map((it,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666"}}>
-              <span>· {it.productName} ×{it.qty}</span>
-              <span>฿{fmt(it.total)}</span>
+
+        {/* แผงรายละเอียดบิล (ขยายได้) */}
+        {expanded&&isOut&&<div style={{borderTop:"1px solid #2a2a2a",background:"#0f0f0f",padding:"10px 14px 12px"}}>
+          {/* หัวข้อ */}
+          <div style={{fontSize:10,fontWeight:700,color:"#ff6b00",letterSpacing:1,marginBottom:8}}>📋 รายการในบิล</div>
+
+          {/* ตารางสินค้า */}
+          {lineItems.length>0&&<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"4px 10px",marginBottom:6}}>
+              <div style={{fontSize:9,color:"#444",fontWeight:700}}>สินค้า</div>
+              <div style={{fontSize:9,color:"#444",fontWeight:700,textAlign:"right"}}>จำนวน</div>
+              <div style={{fontSize:9,color:"#444",fontWeight:700,textAlign:"right"}}>รวม</div>
             </div>
-          ))}
-          {hasInstall&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#00aaff"}}>
-            <span>🔧 ค่าติดตั้ง{tx.installNote?` (${tx.installNote})`:"" }</span>
-            <span>฿{fmt(tx.installFee)}</span>
+            {lineItems.map((it,i)=>(
+              <div key={i} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"3px 10px",padding:"5px 0",borderTop:i>0?"1px solid #1a1a1a":"none"}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{it.productName}</div>
+                  {it.price&&<div style={{fontSize:10,color:"#555"}}>฿{fmt(it.price)} / ชิ้น</div>}
+                </div>
+                <div style={{fontSize:12,color:"#aaa",textAlign:"right",alignSelf:"center"}}>×{it.qty}</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#ff9500",textAlign:"right",alignSelf:"center"}}>฿{fmt(it.total)}</div>
+              </div>
+            ))}
+          </>}
+
+          {/* ค่าติดตั้ง */}
+          {hasInstall&&<div style={{display:"grid",gridTemplateColumns:"1fr auto",padding:"5px 0",borderTop:"1px solid #1a1a1a",gap:10}}>
+            <div style={{fontSize:12,color:"#00aaff"}}>🔧 ค่าติดตั้ง{tx.installNote?` (${tx.installNote})`:""}</div>
+            <div style={{fontSize:13,fontWeight:700,color:"#00aaff",textAlign:"right"}}>฿{fmt(tx.installFee)}</div>
+          </div>}
+
+          {/* บิลติดตั้งอย่างเดียว */}
+          {isInstallOnly&&!hasInstall&&<div style={{fontSize:12,color:"#aa66ff",padding:"4px 0"}}>🔧 ค่าติดตั้ง (ลูกค้านำสินค้ามาเอง)</div>}
+
+          {/* ยอดรวม */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid #333",marginTop:6,paddingTop:8}}>
+            <span style={{fontSize:11,color:"#666"}}>ยอดรวมทั้งบิล</span>
+            <span style={{fontSize:16,fontWeight:800,color:"#ff9500"}}>฿{fmt(tx.total)}</span>
+          </div>
+
+          {/* ข้อมูลเพิ่มเติม */}
+          {(tx.custName||tx.custPhone||tx.custPlate||tx.note)&&<div style={{marginTop:8,padding:"8px 10px",background:"#161616",borderRadius:8,display:"flex",flexDirection:"column",gap:3}}>
+            {tx.custName&&<div style={{fontSize:11,color:"#888"}}>👤 {tx.custName}</div>}
+            {tx.custPhone&&<div style={{fontSize:11,color:"#888"}}>📞 {tx.custPhone}</div>}
+            {tx.custPlate&&<div style={{fontSize:11,color:"#00aaff",fontFamily:"monospace"}}>🚗 {tx.custPlate}</div>}
+            {tx.note&&<div style={{fontSize:11,color:"#666"}}>📝 {tx.note}</div>}
           </div>}
         </div>}
       </div>;
