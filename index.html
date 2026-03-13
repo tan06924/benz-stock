@@ -1415,6 +1415,26 @@
       };
       const delW = id => { if(!window.confirm("ลบรายการประกันนี้?"))return; setWarranties(prev=>prev.filter(w=>w.id!==id)); setModal(null);setForm({}); toast_("🗑️ ลบแล้ว"); };
 
+      /* Delete Transaction + คืนสต๊อก */
+      const delTx = tx => {
+        if(!window.confirm(`ลบรายการนี้?\n"${tx.productName}"\nยอด ฿${fmt(tx.total)}\n\n${tx.type==="out"?"⚠️ สต๊อกจะถูกคืนกลับ":"⚠️ สต๊อกจะถูกหักคืน"}`)) return;
+        setTxs(prev=>prev.filter(t=>t.id!==tx.id));
+        // คืน/หักสต๊อกกลับ
+        if(tx.items&&tx.items.length>0){
+          setProducts(prev=>prev.map(p=>{
+            const it=tx.items.find(i=>i.productId===p.id);
+            if(!it) return p;
+            return {...p, stock: tx.type==="out" ? p.stock+it.qty : Math.max(0,p.stock-it.qty)};
+          }));
+        } else if(tx.productId){
+          setProducts(prev=>prev.map(p=>p.id===tx.productId
+            ? {...p, stock: tx.type==="out" ? p.stock+(tx.qty||0) : Math.max(0,p.stock-(tx.qty||0))}
+            : p
+          ));
+        }
+        toast_("🗑️ ลบรายการแล้ว" + (tx.type==="out"?" (คืนสต๊อกแล้ว)":tx.type==="in"?" (หักสต๊อกคืนแล้ว)":""));
+      };
+
       /* Import handlers */
       const importProducts = rows => {
         setProducts(prev=>{
@@ -1473,7 +1493,7 @@
           <div style={{padding:"0 16px"}}>
             {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
             {tab==="สต๊อก"   &&<StockTab products={filtProd} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
-            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx}/>}
+            {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx} onDelete={delTx} userRole={cu.role}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
             {tab==="ลูกค้า"  &&<CustomerTab transactions={transactions} warranties={warranties} products={products}/>}
             {tab==="รายงาน"  &&<ReportTab online={online} reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
@@ -1969,7 +1989,7 @@
       );
     }
 
-    function TxTab({transactions,setModal,printRcp,setScanner,setTaxInvoiceTx}) {
+    function TxTab({transactions,setModal,printRcp,setScanner,setTaxInvoiceTx,onDelete,userRole}) {
       const [filter,setFilter]=useState("all");
       const list=filter==="all"?transactions:transactions.filter(t=>t.type===filter);
       return (
@@ -1989,7 +2009,7 @@
               <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนขาย</span>
             </button>
           </div>
-          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null} onTax={t.type==="out"?()=>setTaxInvoiceTx(t):null}/>)}
+          {list.map(t=><TxRow key={t.id} tx={t} onPrint={t.type==="out"?()=>printRcp(t):null} onTax={t.type==="out"?()=>setTaxInvoiceTx(t):null} onDelete={onDelete} userRole={userRole}/>)}
           {list.length===0&&<Empty msg="ไม่มีรายการ"/>}
         </div>
       );
@@ -2252,31 +2272,35 @@
         <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span>
       </button>;
     }
-    function TxRow({tx,onPrint,onTax}) {
+    function TxRow({tx,onPrint,onTax,onDelete,userRole}) {
       const isOut=tx.type==="out";
       const isMulti=tx.items&&tx.items.length>1;
       const hasInstall=(tx.installFee||0)>0;
+      const isInstallOnly=tx.installOnly===true;
       return <div style={{background:"#161616",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${isOut?"#ff6b0018":"#00cc6618"}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div style={{display:"flex",gap:9,alignItems:"flex-start",flex:1}}>
-            <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isOut?"📤":"📥"}</div>
+            <div style={{width:34,height:34,borderRadius:9,background:isOut?"#ff6b0018":"#00cc6618",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{isInstallOnly?"🔧":isOut?"📤":"📥"}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:2}}>
                 <span style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.productName}</span>
                 {isMulti&&<span style={{fontSize:9,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>{tx.items.length} รายการ</span>}
-                {hasInstall&&<span style={{fontSize:9,background:"rgba(0,170,255,.2)",color:"#00aaff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 ค่าติดตั้ง</span>}
+                {isInstallOnly&&<span style={{fontSize:9,background:"rgba(170,102,255,.25)",color:"#aa66ff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 นำมาเอง</span>}
+                {hasInstall&&!isInstallOnly&&<span style={{fontSize:9,background:"rgba(0,170,255,.2)",color:"#00aaff",padding:"1px 6px",borderRadius:10,fontWeight:700,flexShrink:0}}>🔧 ค่าติดตั้ง</span>}
               </div>
               <div style={{fontSize:10,color:"#555"}}>{thDate(tx.date)}{tx.time?` ${tx.time}`:""} · {tx.note}</div>
-              {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>👤 {tx.createdBy}</div>}
+              {tx.custName&&<div style={{fontSize:9,color:"#00aaff66"}}>👤 {tx.custName}{tx.custPlate?` · ${tx.custPlate}`:""}</div>}
+              {tx.createdBy&&<div style={{fontSize:9,color:"#444"}}>🖊️ {tx.createdBy}</div>}
             </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,paddingLeft:8}}>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{tx.qty}</div>
+              <div style={{fontSize:14,fontWeight:700,color:isOut?"#ff9500":"#00cc66"}}>{isOut?"-":"+"}{isInstallOnly?"—":tx.qty}</div>
               <div style={{fontSize:10,color:"#555"}}>฿{fmt(tx.total)}</div>
             </div>
             {onPrint&&<button onClick={e=>{e.stopPropagation();onPrint();}} style={{background:"#1a1a1a",border:"1px solid #333",color:"#aaa",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>🖨️</button>}
-            {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄 ภาษี</button>}
+            {onTax&&tx.type==="out"&&<button onClick={e=>{e.stopPropagation();onTax();}} style={{background:"#1a1a1a",border:"1px solid #ff9500",color:"#ff9500",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}}>📄</button>}
+            {onDelete&&(userRole==="admin"||!userRole)&&<button onClick={e=>{e.stopPropagation();onDelete(tx);}} style={{background:"#1a0000",border:"1px solid #cc222244",color:"#ff4444",padding:"4px 7px",borderRadius:6,fontSize:11,cursor:"pointer"}} title="ลบรายการ">🗑️</button>}
           </div>
         </div>
         {/* Sub-item list for multi-item bills */}
