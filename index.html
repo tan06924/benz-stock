@@ -1332,6 +1332,11 @@
       /* Cart (multi-item sale) */
       const submitCart = () => {
         const fee=parseFloat(installFee)||0;
+        const cartHasW = !installOnly && cart.some(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty);
+        // sync customer into cartWForm if not explicitly set
+        const wCustomer = cartWForm.customer || custName;
+        const wPhone    = cartWForm.phone    || custPhone;
+        const wPlate    = cartWForm.plate    || custPlate;
         if(installOnly){
           if(!fee) return toast_("กรุณากรอกค่าติดตั้ง","err");
           const tx={
@@ -1344,8 +1349,8 @@
             custName, custPhone, custPlate
           };
           setTxs(prev=>[tx,...prev]);
-          if(cartWarranty && cartWForm.customer){
-            setWarranties(prev=>[{id:Date.now()+1,customer:cartWForm.customer||custName,phone:cartWForm.phone||custPhone,plate:cartWForm.plate||custPlate,product:installNote||"ติดตั้ง",type:cartWForm.wtype||"install",saleDate:form.date||today(),months:parseInt(cartWForm.months)||12,note:cartWForm.wnote||""},...prev]);
+          if(cartWarranty && wCustomer){
+            setWarranties(prev=>[{id:Date.now()+1,customer:wCustomer,phone:wPhone,plate:wPlate,product:installNote||"ติดตั้ง",type:cartWForm.wtype||"install",saleDate:form.date||today(),months:parseInt(cartWForm.months)||12,note:cartWForm.wnote||""},...prev]);
           }
           setLastRcp(tx);
           closeModal();
@@ -1353,7 +1358,8 @@
           return;
         }
         if(cart.length===0) return toast_("กรุณาเพิ่มสินค้าในตะกร้า","err");
-        if(cartWarranty && !cartWForm.customer) return toast_("กรอกชื่อลูกค้าสำหรับประกัน","err");
+        if(cartHasW && !wCustomer) return toast_("⚠️ สินค้ามีประกัน — กรุณากรอกชื่อลูกค้า","err");
+        if(cartWarranty && !wCustomer) return toast_("กรอกชื่อลูกค้าสำหรับประกัน","err");
         for(const ci of cart){
           const p=products.find(x=>x.id===ci.productId);
           if(!p) return toast_(`ไม่พบสินค้า: ${ci.productName}`,"err");
@@ -1372,20 +1378,37 @@
           price:firstItem.price, total:grandTotal,
           note:form.note||"ขายลูกค้า",
           createdBy:cu.name,
-          custName, custPhone, custPlate
+          custName:custName||wCustomer, custPhone:custPhone||wPhone, custPlate:custPlate||wPlate
         };
         setTxs(prev=>[tx,...prev]);
         setProducts(prev=>prev.map(p=>{
           const ci=cart.find(i=>i.productId===p.id);
           return ci?{...p,stock:p.stock-ci.qty}:p;
         }));
-        if(cartWarranty && cartWForm.customer){
+        // บันทึกประกัน: ถ้ามีสินค้าที่มีประกันแต่ละชิ้น ให้สร้างใบประกันแยก
+        const warrantyTime = Date.now();
+        if(cartHasW){
+          const wItems = cart.filter(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty);
+          wItems.forEach((ci,idx)=>{
+            const p=products.find(x=>x.id===ci.productId);
+            setWarranties(prev=>[{
+              id:warrantyTime+idx+1,
+              customer:wCustomer, phone:wPhone, plate:wPlate,
+              product:ci.productName,
+              type:cartWForm.wtype||"product",
+              saleDate:form.date||today(),
+              months:p?.warrantyMonths||parseInt(cartWForm.months)||12,
+              note:cartWForm.wnote||""
+            },...prev]);
+          });
+        } else if(cartWarranty && wCustomer){
           const productLabel = cart.length===1 ? cart[0].productName : cart.map(c=>c.productName).join(", ");
-          setWarranties(prev=>[{id:Date.now()+1,customer:cartWForm.customer,phone:cartWForm.phone||"",plate:cartWForm.plate||"",product:productLabel,type:cartWForm.wtype||"install",saleDate:form.date||today(),months:parseInt(cartWForm.months)||12,note:cartWForm.wnote||""},...prev]);
+          setWarranties(prev=>[{id:warrantyTime+1,customer:wCustomer,phone:wPhone,plate:wPlate,product:productLabel,type:cartWForm.wtype||"install",saleDate:form.date||today(),months:parseInt(cartWForm.months)||12,note:cartWForm.wnote||""},...prev]);
         }
         setLastRcp(tx);
         closeModal();
-        toast_(`✅ บันทึกบิล ${cart.length} รายการ ฿${fmt(grandTotal)}${cartWarranty?" + ประกัน 🛡️":""}`);
+        const wCount = cartHasW ? cart.filter(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty).length : (cartWarranty&&wCustomer?1:0);
+        toast_(`✅ บันทึกบิล ${cart.length} รายการ ฿${fmt(grandTotal)}${wCount>0?` + ประกัน ${wCount} รายการ 🛡️`:""}`);
       };
 
       /* Add product (auto-code) */
@@ -1393,7 +1416,7 @@
       const submitAdd = () => {
         if(!form.name||!form.code||!form.price) return toast_("กรอกข้อมูลให้ครบ","err");
         if(products.find(x=>x.code===form.code)) return toast_("รหัสนี้มีอยู่แล้ว","err");
-        setProducts(prev=>[...prev,{id:Date.now(),code:form.code,name:form.name,category:form.category||"ทั่วไป",stock:parseInt(form.stock)||0,price:parseFloat(form.price)||0,costPrice:parseFloat(form.costPrice)||0,unit:form.unit||"ชิ้น",minStock:parseInt(form.minStock)||5}]);
+        setProducts(prev=>[...prev,{id:Date.now(),code:form.code,name:form.name,category:form.category||"ทั่วไป",stock:parseInt(form.stock)||0,price:parseFloat(form.price)||0,costPrice:parseFloat(form.costPrice)||0,unit:form.unit||"ชิ้น",minStock:parseInt(form.minStock)||5,hasWarranty:!!form.hasWarranty,warrantyMonths:form.hasWarranty?(parseInt(form.warrantyMonths)||12):0}]);
         closeModal(); toast_("✅ เพิ่มสินค้าสำเร็จ");
       };
 
@@ -1512,7 +1535,9 @@
           </div>
 
           {/* MODALS */}
-          {modal==="in"&&(
+          {modal==="in"&&(()=>{
+            const selProd = products.find(p=>String(p.id)===String(form.productId));
+            return (
             <Modal title="📥 รับสินค้าเข้า" onClose={closeModal}>
               <button onClick={()=>setScanner("in")} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px dashed #ff6b0066",background:"rgba(255,107,0,.06)",color:"#ff9500",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                 <span style={{fontSize:20}}>📷</span> สแกนบาร์โค้ดสินค้า
@@ -1524,16 +1549,27 @@
                 <div style={{fontSize:11,color:"#666",marginBottom:8}}>หรือเลือกจากรายการ</div>
                 <Sel label="สินค้า" value={form.productId||""} onChange={v=>setForm(f=>({...f,productId:v}))}>
                   <option value="">-- เลือกสินค้า --</option>
-                  {products.map(p=><option key={p.id} value={p.id}>{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
+                  {products.map(p=><option key={p.id} value={p.id}>{p.hasWarranty?"🛡️ ":""}{p.code} | {p.name} (คงเหลือ {p.stock} {p.unit})</option>)}
                 </Sel>
               </div>
+              {/* WARRANTY NOTICE: แสดงเมื่อสินค้าที่เลือกมีประกัน */}
+              {selProd?.hasWarranty&&(
+                <div style={{background:"rgba(0,204,102,.08)",border:"1px solid #00cc6644",borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:20,flexShrink:0}}>🛡️</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#00cc66"}}>สินค้านี้มีการรับประกัน {selProd.warrantyMonths||12} เดือน</div>
+                    <div style={{fontSize:11,color:"#555",marginTop:2}}>เมื่อขายออก ระบบจะให้กรอกข้อมูลลูกค้าเพื่อเริ่มประกัน</div>
+                  </div>
+                </div>
+              )}
               <Inp label="จำนวน" type="number" value={form.qty||""} onChange={v=>setForm(f=>({...f,qty:v}))} placeholder="0"/>
-              <Inp label="วันที่" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
+              <Inp label="วันที่รับสินค้า" type="date" value={form.date||today()} onChange={v=>setForm(f=>({...f,date:v}))}/>
               <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="รับจากซัพพลายเออร์"/>
               {form.productId&&form.qty&&<div style={{background:"#1a1a1a",borderRadius:8,padding:10,fontSize:13,color:"#aaa"}}>💰 มูลค่า: <strong style={{color:"#ff9500"}}>฿{fmt((products.find(p=>p.id===parseInt(form.productId))?.price||0)*parseInt(form.qty||0))} บาท</strong></div>}
               <OBtn onClick={()=>submitTx("in")}>✅ บันทึกรับสินค้า</OBtn>
             </Modal>
-          )}
+            );
+          })()}
 
           {modal==="out"&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)closeModal();}}>
@@ -1549,6 +1585,19 @@
 
                 {/* Scrollable body */}
                 <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                {(()=>{
+                  // Detect if any cart item has warranty
+                  const cartHasWarranty = cart.some(ci=>{ const p=products.find(x=>x.id===ci.productId); return p?.hasWarranty; });
+                  const warrantyItems = cart.filter(ci=>{ const p=products.find(x=>x.id===ci.productId); return p?.hasWarranty; });
+                  // Auto-enable warranty toggle when warranted items added
+                  if(cartHasWarranty && !cartWarranty) setCartWarranty(true);
+                  // Pre-fill warrantyMonths from first warranted product
+                  if(cartHasWarranty && warrantyItems.length>0 && cartWForm.months==="12"){
+                    const fp=products.find(x=>x.id===warrantyItems[0].productId);
+                    if(fp?.warrantyMonths && String(fp.warrantyMonths)!==cartWForm.months) setCartWForm(f=>({...f,months:String(fp.warrantyMonths)}));
+                  }
+                  return null;
+                })()}
 
                   {/* 🔧 Install-only toggle */}
                   <div onClick={()=>{setInstallOnly(v=>!v);setCart([]);}} style={{background:installOnly?"#001a2e":"#0d0d0d",borderRadius:10,padding:"10px 14px",border:`2px solid ${installOnly?"#00aaff":"#1a1a1a"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",userSelect:"none"}}>
@@ -1564,20 +1613,41 @@
                     </div>
                   </div>
 
+                  {/* WARRANTY ALERT: แสดงเมื่อมีสินค้าที่มีประกันในตะกร้า */}
+                  {!installOnly&&cart.some(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty)&&(
+                    <div style={{background:"rgba(0,204,102,.08)",border:"1px solid #00cc6644",borderRadius:10,padding:"10px 12px"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#00cc66",marginBottom:4}}>🛡️ บิลนี้มีสินค้าที่มีประกัน</div>
+                      <div style={{fontSize:11,color:"#555"}}>
+                        {cart.filter(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty).map(ci=>{
+                          const p=products.find(x=>x.id===ci.productId);
+                          return <div key={ci.productId}>• {ci.productName} — {p?.warrantyMonths||12} เดือน</div>;
+                        })}
+                      </div>
+                      <div style={{fontSize:11,color:"#00cc66",marginTop:4,fontWeight:600}}>⬇️ กรุณากรอกข้อมูลลูกค้าด้านล่างเพื่อเริ่มประกัน</div>
+                    </div>
+                  )}
+
                   {/* Customer info */}
-                  <div style={{background:"#0d0d0d",borderRadius:10,padding:12,border:"1px solid #ffffff11"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:8}}>👤 ข้อมูลลูกค้า (ไม่บังคับ)</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                      <input value={custName} onChange={e=>setCustName(e.target.value)} placeholder="ชื่อลูกค้า"
-                        style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        <input value={custPhone} onChange={e=>setCustPhone(e.target.value)} placeholder="เบอร์โทร" type="tel"
-                          style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
-                        <input value={custPlate} onChange={e=>setCustPlate(e.target.value)} placeholder="ทะเบียนรถ"
-                          style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                  {(()=>{
+                    const hasW = !installOnly && cart.some(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty);
+                    return (
+                    <div style={{background: hasW?"#001a0a":"#0d0d0d",borderRadius:10,padding:12,border:`1px solid ${hasW?"#00cc6644":"#ffffff11"}`}}>
+                      <div style={{fontSize:11,fontWeight:700,color:hasW?"#00cc66":"#888",marginBottom:8}}>
+                        👤 ข้อมูลลูกค้า {hasW?"(จำเป็นสำหรับประกัน ✱)":"(ไม่บังคับ)"}
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        <input value={custName} onChange={e=>{setCustName(e.target.value); if(cartWarranty)setCartWForm(f=>({...f,customer:e.target.value}));}} placeholder={hasW?"ชื่อลูกค้า ✱ (บังคับ)":"ชื่อลูกค้า"}
+                          style={{width:"100%",padding:"9px 10px",borderRadius:8,border:`1px solid ${hasW&&!custName?"#ff333366":"#333"}`,background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                          <input value={custPhone} onChange={e=>{setCustPhone(e.target.value); if(cartWarranty)setCartWForm(f=>({...f,phone:e.target.value}));}} placeholder="เบอร์โทร" type="tel"
+                            style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                          <input value={custPlate} onChange={e=>{setCustPlate(e.target.value); if(cartWarranty)setCartWForm(f=>({...f,plate:e.target.value}));}} placeholder="ทะเบียนรถ"
+                            style={{width:"100%",padding:"9px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}/>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* Scan + Add buttons (ซ่อนถ้า installOnly) */}
                   {!installOnly&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -1619,6 +1689,7 @@
                             <div style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700,display:"inline-block",marginBottom:3}}>{ci.productCode}</div>
                             <div style={{fontSize:13,fontWeight:600,lineHeight:1.3}}>{ci.productName}</div>
                             <div style={{fontSize:11,color:"#666"}}>฿{fmt(ci.price)} / {ci.unit}</div>
+                            {products.find(x=>x.id===ci.productId)?.hasWarranty&&<div style={{fontSize:10,color:"#00cc66",marginTop:2}}>🛡️ มีประกัน {products.find(x=>x.id===ci.productId)?.warrantyMonths||12} เดือน</div>}
                           </div>
                           <button onClick={()=>setCart(prev=>prev.filter((_,i)=>i!==idx))} style={{background:"#1a1a1a",border:"1px solid #333",color:"#ff6666",width:24,height:24,borderRadius:6,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginLeft:8}}>✕</button>
                         </div>
@@ -1659,13 +1730,18 @@
                   <Inp label="หมายเหตุ" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} placeholder="ขายลูกค้า"/>
 
                   {/* Warranty Toggle */}
-                  <div style={{background: cartWarranty?"#001a0a":"#0d0d0d", borderRadius:10, padding:12, border:`1px solid ${cartWarranty?"#00cc6644":"#1a1a1a"}`}}>
-                    <div onClick={()=>setCartWarranty(v=>!v)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none"}}>
+                  {(()=>{
+                    const cartHasW = !installOnly && cart.some(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty);
+                    return (
+                  <div style={{background: cartWarranty?"#001a0a":"#0d0d0d", borderRadius:10, padding:12, border:`1px solid ${cartHasW?"#00cc66":cartWarranty?"#00cc6644":"#1a1a1a"}`}}>
+                    <div onClick={()=>{ if(!cartHasW) setCartWarranty(v=>!v); }} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:cartHasW?"default":"pointer",userSelect:"none"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:16}}>🛡️</span>
                         <div>
-                          <div style={{fontSize:12,fontWeight:700,color:cartWarranty?"#00cc66":"#888"}}>บันทึกประกันสินค้า</div>
-                          <div style={{fontSize:10,color:"#444"}}>เพิ่มรายการประกันพร้อมกับบิลขาย</div>
+                          <div style={{fontSize:12,fontWeight:700,color:cartWarranty?"#00cc66":"#888"}}>
+                            {cartHasW?"บันทึกประกัน (บังคับ — มีสินค้าที่มีประกัน)":"บันทึกประกันสินค้า"}
+                          </div>
+                          <div style={{fontSize:10,color:"#444"}}>{cartHasW?"กรอกข้อมูลลูกค้าด้านล่างเพื่อเริ่มนับประกัน":"เพิ่มรายการประกันพร้อมกับบิลขาย"}</div>
                         </div>
                       </div>
                       <div style={{width:42,height:24,borderRadius:12,background:cartWarranty?"#00cc66":"#333",position:"relative",transition:"background .2s",flexShrink:0}}>
@@ -1674,9 +1750,12 @@
                     </div>
                     {cartWarranty&&(
                       <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
-                        <Inp label="ชื่อลูกค้า *" value={cartWForm.customer} onChange={v=>setCartWForm(f=>({...f,customer:v}))} placeholder="ชื่อ-นามสกุล"/>
-                        <Inp label="เบอร์โทร" value={cartWForm.phone} onChange={v=>setCartWForm(f=>({...f,phone:v}))} placeholder="0xx-xxx-xxxx" type="tel"/>
-                        <Inp label="ทะเบียนรถ" value={cartWForm.plate} onChange={v=>setCartWForm(f=>({...f,plate:v}))} placeholder="กข 1234 กทม"/>
+                        <div style={{background:"#0a1a0a",borderRadius:8,padding:"8px 10px",fontSize:11,color:"#00cc66"}}>
+                          💡 ข้อมูลลูกค้าถูกดึงมาจากด้านบนอัตโนมัติ — แก้ไขได้ที่นี่
+                        </div>
+                        <Inp label="ชื่อลูกค้า ✱" value={cartWForm.customer||custName} onChange={v=>setCartWForm(f=>({...f,customer:v}))} placeholder="ชื่อ-นามสกุล"/>
+                        <Inp label="เบอร์โทร" value={cartWForm.phone||custPhone} onChange={v=>setCartWForm(f=>({...f,phone:v}))} placeholder="0xx-xxx-xxxx" type="tel"/>
+                        <Inp label="ทะเบียนรถ" value={cartWForm.plate||custPlate} onChange={v=>setCartWForm(f=>({...f,plate:v}))} placeholder="กข 1234 กทม"/>
                         <div>
                           <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ประเภทประกัน</label>
                           <select value={cartWForm.wtype} onChange={e=>setCartWForm(f=>({...f,wtype:e.target.value}))}
@@ -1685,11 +1764,23 @@
                             <option value="product">📦 ประกันสินค้า</option>
                           </select>
                         </div>
+                        {/* Per-product warranty rows when multiple warranted items */}
+                        {cart.filter(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty).length>1&&(
+                          <div style={{background:"#0d0d0d",borderRadius:8,padding:10,border:"1px solid #1a3a1a"}}>
+                            <div style={{fontSize:11,color:"#555",marginBottom:6}}>📦 ระยะประกันแยกตามสินค้า</div>
+                            {cart.filter(ci=>products.find(x=>x.id===ci.productId)?.hasWarranty).map(ci=>{
+                              const p=products.find(x=>x.id===ci.productId);
+                              return <div key={ci.productId} style={{fontSize:11,color:"#aaa",marginBottom:3}}>
+                                • {ci.productName}: <span style={{color:"#00cc66",fontWeight:700}}>{p?.warrantyMonths||12} เดือน</span>
+                              </div>;
+                            })}
+                          </div>
+                        )}
                         <div>
-                          <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ระยะประกัน</label>
+                          <label style={{fontSize:11,color:"#888",display:"block",marginBottom:3}}>ระยะประกัน {cartHasW?"(ตามที่กำหนดในสินค้า)":""}</label>
                           <select value={cartWForm.months} onChange={e=>setCartWForm(f=>({...f,months:e.target.value}))}
                             style={{width:"100%",padding:"10px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}>
-                            {[3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน</option>)}
+                            {[1,3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน</option>)}
                           </select>
                         </div>
                         {(form.date||today())&&cartWForm.months&&(
@@ -1701,6 +1792,8 @@
                       </div>
                     )}
                   </div>
+                    );
+                  })()}
 
                   {/* Summary */}
                   {(installOnly ? (parseFloat(installFee)||0)>0 : cart.length>0)&&(()=>{
@@ -1765,6 +1858,30 @@
               <Inp label="สต๊อกเริ่มต้น" type="number" value={form.stock||""} onChange={v=>setForm(f=>({...f,stock:v}))} placeholder="0"/>
               <Inp label="หน่วย" value={form.unit||""} onChange={v=>setForm(f=>({...f,unit:v}))} placeholder="ชิ้น / ม้วน / ชุด"/>
               <Inp label="สต๊อกขั้นต่ำ (แจ้งเตือน)" type="number" value={form.minStock||"5"} onChange={v=>setForm(f=>({...f,minStock:v}))} placeholder="5"/>
+              {/* WARRANTY */}
+              <div style={{background:form.hasWarranty?"#001a0a":"#0d0d0d",borderRadius:10,padding:12,border:`1px solid ${form.hasWarranty?"#00cc6644":"#1a1a1a"}`}}>
+                <div onClick={()=>setForm(f=>({...f,hasWarranty:!f.hasWarranty}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:16}}>🛡️</span>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:form.hasWarranty?"#00cc66":"#888"}}>สินค้านี้มีการรับประกัน</div>
+                      <div style={{fontSize:10,color:"#444"}}>ระบบจะแจ้งให้กรอกข้อมูลลูกค้าเมื่อขายออก</div>
+                    </div>
+                  </div>
+                  <div style={{width:42,height:24,borderRadius:12,background:form.hasWarranty?"#00cc66":"#333",position:"relative",transition:"background .2s",flexShrink:0}}>
+                    <div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:form.hasWarranty?21:3,transition:"left .2s"}}/>
+                  </div>
+                </div>
+                {form.hasWarranty&&(
+                  <div style={{marginTop:10}}>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>ระยะรับประกัน (เดือน)</label>
+                    <select value={form.warrantyMonths||"12"} onChange={e=>setForm(f=>({...f,warrantyMonths:e.target.value}))}
+                      style={{width:"100%",padding:"10px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}>
+                      {[1,3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน{m===12?" (ค่าเริ่มต้น)":""}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
               <OBtn onClick={submitAdd}>✅ เพิ่มสินค้า</OBtn>
             </Modal>
           )}
@@ -1782,6 +1899,30 @@
               <Inp label="สต๊อกปัจจุบัน" type="number" value={editP.stock} onChange={v=>setEditP(p=>({...p,stock:parseInt(v)}))}/>
               <Inp label="สต๊อกขั้นต่ำ" type="number" value={editP.minStock} onChange={v=>setEditP(p=>({...p,minStock:parseInt(v)}))}/>
               <Inp label="หน่วย" value={editP.unit} onChange={v=>setEditP(p=>({...p,unit:v}))}/>
+              {/* WARRANTY */}
+              <div style={{background:editP.hasWarranty?"#001a0a":"#0d0d0d",borderRadius:10,padding:12,border:`1px solid ${editP.hasWarranty?"#00cc6644":"#1a1a1a"}`}}>
+                <div onClick={()=>setEditP(p=>({...p,hasWarranty:!p.hasWarranty}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:16}}>🛡️</span>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:editP.hasWarranty?"#00cc66":"#888"}}>สินค้านี้มีการรับประกัน</div>
+                      <div style={{fontSize:10,color:"#444"}}>ระบบจะแจ้งให้กรอกข้อมูลลูกค้าเมื่อขายออก</div>
+                    </div>
+                  </div>
+                  <div style={{width:42,height:24,borderRadius:12,background:editP.hasWarranty?"#00cc66":"#333",position:"relative",transition:"background .2s",flexShrink:0}}>
+                    <div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:editP.hasWarranty?21:3,transition:"left .2s"}}/>
+                  </div>
+                </div>
+                {editP.hasWarranty&&(
+                  <div style={{marginTop:10}}>
+                    <label style={{fontSize:11,color:"#888",display:"block",marginBottom:4}}>ระยะรับประกัน (เดือน)</label>
+                    <select value={editP.warrantyMonths||12} onChange={e=>setEditP(p=>({...p,warrantyMonths:parseInt(e.target.value)}))}
+                      style={{width:"100%",padding:"10px 10px",borderRadius:8,border:"1px solid #333",background:"#1a1a1a",color:"#fff",fontSize:13}}>
+                      {[1,3,6,12,18,24,36,48,60].map(m=><option key={m} value={m}>{m} เดือน{m===12?" (ค่าเริ่มต้น)":""}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
               <OBtn onClick={submitEdit}>✅ บันทึกการแก้ไข</OBtn>
               <button onClick={()=>printBarcodes([{code:editP.code,name:editP.name,qty:1}],shopName)}
                 style={{width:"100%",padding:12,borderRadius:10,border:"1px solid #ffcc0044",background:"rgba(255,204,0,.06)",color:"#ffcc00",fontSize:13,fontWeight:600,cursor:"pointer"}}>🏷️ พิมพ์บาร์โค้ดสินค้านี้</button>
@@ -1974,6 +2115,7 @@
                 <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:2}}>
                   <span style={{fontSize:10,background:"#ff6b00",color:"#fff",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{p.code}</span>
                   <span style={{fontSize:10,color:"#555",background:"#222",padding:"1px 6px",borderRadius:4}}>{p.category}</span>
+                  {p.hasWarranty&&<span style={{fontSize:9,background:"rgba(0,204,102,.15)",color:"#00cc66",padding:"1px 6px",borderRadius:4,border:"1px solid #00cc6633"}}>🛡️ ประกัน</span>}
                 </div>
                 <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
                 <div style={{fontSize:11,color:"#666"}}>฿{fmt(p.price)} / {p.unit}{p.costPrice>0?<span style={{color:"#00cc66",marginLeft:6}}>กำไร {Math.round(((p.price-p.costPrice)/p.price)*100)}%</span>:null}</div>
@@ -1982,6 +2124,7 @@
                 <div style={{fontSize:22,fontWeight:800,color:isLow?"#ff3333":"#00cc66"}}>{p.stock}</div>
                 <div style={{fontSize:10,color:"#555"}}>{p.unit}</div>
                 {isLow&&<div style={{fontSize:9,color:"#ff6666"}}>⚠️ ต่ำกว่าเกณฑ์</div>}
+                {p.hasWarranty&&<div style={{fontSize:9,color:"#00cc66"}}>🛡️ มีประกัน {p.warrantyMonths||12} ด.</div>}
               </div>
             </div>;
           })}
