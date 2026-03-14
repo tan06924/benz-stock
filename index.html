@@ -1331,6 +1331,14 @@
       };
       const colors = themeColors[theme];
       
+      // ── Device Detection ──────────────────────────────────────────
+      const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+      useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 768);
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+      }, []);
+      
       // ── Notifications ────────────────────────────────────────────
       const [notifications, setNotifications] = useState([])
 
@@ -1663,7 +1671,6 @@
           </div>
 
           {toast&&<div style={{position:"fixed",top:110,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?"#cc2222":"#1a7a40",color:"#fff",padding:"9px 18px",borderRadius:10,zIndex:999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.5)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
-          {lastRcp&&tab==="หน้าหลัก"&&<div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"#aaa"}}>🧾 <strong style={{color:"#fff"}}>{lastRcp.productName}</strong></div><button onClick={()=>printReceipt(lastRcp,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ ใบเสร็จ</button></div>}
 
           <div style={{padding:"0 16px"}}>
             {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner} warranties={warranties}/>}
@@ -2214,20 +2221,12 @@
           
           <SecTitle>💡 Actions</SecTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:14}}>
-            <ABtn icon="📥" label="รับเข้า" color="#00cc66" onClick={()=>setModal("in")}/>
-            <ABtn icon="📤" label="ขายออก" color="#ff6b00" onClick={()=>setModal("out")}/>
+            <ABtn icon="📥" label="รับเข้า" color="#00cc66" onClick={()=>setModal("in")} onLongPress={()=>setScanner("in")}/>
+            <ABtn icon="📤" label="ขายออก" color="#ff6b00" onClick={()=>setModal("out")} onLongPress={()=>setScanner("out")}/>
             <ABtn icon="🛡️" label="ประกัน" color="#00aaff" onClick={()=>openW()}/>
             <ABtn icon="📊" label="รายงาน" color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <button onClick={()=>setScanner("in")} style={{padding:"14px 12px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-              <span style={{fontSize:24}}>📷</span><span style={{fontSize:12,fontWeight:600}}>สแกนรับของ</span>
-            </button>
-            <button onClick={()=>setScanner("out")} style={{padding:"12px 8px",borderRadius:12,border:"2px dashed #ff6b0044",background:"rgba(255,107,0,.05)",color:"#ff9500",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <span style={{fontSize:22}}>📷</span><span style={{fontSize:11,fontWeight:600}}>สแกนขายออก</span>
-            </button>
-          </div>
           {lowStock.length>0&&<><SecTitle>📦 สต๊อกใกล้หมด</SecTitle>{lowStock.map(p=>(
             <div key={p.id} style={{background:"linear-gradient(135deg,#1a0000,#2a0808)",border:"1px solid #ff333344",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"#666"}}>{p.code}</div></div>
@@ -2833,8 +2832,37 @@
         <div style={{fontSize:sm?9:10,color:"#555"}}>{label}</div>
       </div>;
     }
-    function ABtn({icon,label,color,onClick}) {
-      return <button onClick={onClick} style={{flex:1,padding:"13px 8px",borderRadius:12,border:`1px solid ${color}33`,background:`${color}11`,color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+    function ABtn({icon,label,color,onClick,onLongPress}) {
+      const [pressing, setPressing] = useState(false);
+      const pressTimer = useRef(null);
+      
+      const handleMouseDown = () => {
+        setPressing(true);
+        pressTimer.current = setTimeout(() => {
+          if (onLongPress) {
+            onLongPress();
+            setPressing(false);
+          }
+        }, 600);
+      };
+      
+      const handleMouseUp = () => {
+        if (pressTimer.current) {
+          clearTimeout(pressTimer.current);
+        }
+        if (pressing && onClick) {
+          onClick();
+        }
+        setPressing(false);
+      };
+      
+      return <button 
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleMouseDown}
+        onTouchEnd={handleMouseUp}
+        style={{flex:1,padding:"13px 8px",borderRadius:12,border:`1px solid ${color}33`,background:`${color}${pressing?'44':'11'}`,color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"all 0.2s"}}>
         <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:600,color}}>{label}</span>
       </button>;
     }
