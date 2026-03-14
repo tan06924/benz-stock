@@ -2371,15 +2371,9 @@
           </div>}
 
           {/* Action buttons */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:12}}>
-            <ABtn icon="📥" label="รับสินค้า" color="#00cc66" onClick={()=>setModal("in")}/>
-            <ABtn icon="📤" label="บันทึกขาย" color="#ff6b00" onClick={()=>setModal("out")}/>
-            <button onClick={()=>setScanner("in")} style={{flex:1,padding:"13px 4px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนรับ</span>
-            </button>
-            <button onClick={()=>setScanner("out")} style={{flex:1,padding:"13px 4px",borderRadius:12,border:"2px dashed #ff6b0044",background:"rgba(255,107,0,.05)",color:"#ff9500",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <span style={{fontSize:20}}>📷</span><span style={{fontSize:10,fontWeight:600}}>สแกนขาย</span>
-            </button>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            <ABtn icon="📥" label="รับสินค้า" color="#00cc66" onClick={()=>setModal("in")} onLongPress={()=>setScanner("in")}/>
+            <ABtn icon="📤" label="บันทึกขาย" color="#ff6b00" onClick={()=>setModal("out")} onLongPress={()=>setScanner("out")}/>
           </div>
 
           {/* List count */}
