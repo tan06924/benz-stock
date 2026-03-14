@@ -22,27 +22,40 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script>
     var _db = null;
-    try {
-      var _fbConfig = {
-        apiKey: "AIzaSyDnjPgN-qBMoJs636Jf7ZysDeH_xEaetxk",
-        authDomain: "benz-stock.firebaseapp.com",
-        projectId: "benz-stock",
-        storageBucket: "benz-stock.firebasestorage.app",
-        messagingSenderId: "950987891419",
-        appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
-      };
-      if (typeof firebase !== "undefined") {
+    
+    // Wait for Firebase to load, then initialize
+    function initFirebase() {
+      try {
+        if (typeof firebase === "undefined") {
+          console.warn("⚠️ Firebase SDK ไม่โหลด — ใช้ localStorage แทน");
+          return;
+        }
+        
+        var _fbConfig = {
+          apiKey: "AIzaSyDnjPgN-qBMoJs636Jf7ZysDeH_xEaetxk",
+          authDomain: "benz-stock.firebaseapp.com",
+          projectId: "benz-stock",
+          storageBucket: "benz-stock.firebasestorage.app",
+          messagingSenderId: "950987891419",
+          appId: "1:950987891419:web:dc121fd07d00bb0a8e62fe"
+        };
+        
         firebase.initializeApp(_fbConfig);
         _db = firebase.firestore();
         _db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
         _db.enablePersistence({synchronizeTabs:true}).catch(function(){});
-        console.log("✅ Firebase initialized");
-      } else {
-        console.warn("⚠️ Firebase SDK ไม่โหลด — ใช้ localStorage แทน");
+        console.log("✅ Firebase initialized successfully");
+      } catch(e) {
+        console.error("🔴 Firebase init error:", e);
+        _db = null;
       }
-    } catch(e) {
-      console.error("Firebase init error:", e);
-      _db = null;
+    }
+    
+    // Initialize when Firebase scripts load
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initFirebase);
+    } else {
+      initFirebase();
     }
   </script>
   <style>
@@ -50,6 +63,38 @@
     html, body { height: 100%; background: #0d0d0d; color: #f0f0f0; font-family: 'Sarabun', sans-serif; overscroll-behavior: none; }
     input, select, button, textarea { font-family: 'Sarabun', sans-serif; }
     ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: #111; } ::-webkit-scrollbar-thumb { background: #ff6b00; border-radius: 2px; }
+    
+    /* ═══════════════════════════════════ RESPONSIVE ═══════════════════════════════════ */
+    /* Mobile: 0-440px */
+    @media (max-width: 440px) {
+      [data-layout="main"] { max-width: 440px; padding: 0 16px; }
+      [data-layout="header"] { padding: 18px 16px 12px; }
+      [data-layout="header-title"] { font-size: 20px; }
+      [data-layout="grid-4"] { grid-template-columns: 1fr 1fr !important; }
+      [data-layout="grid-3"] { grid-template-columns: 1fr !important; }
+      [data-layout="button-size"] { width: 38px; height: 38px; font-size: 16px; }
+    }
+    
+    /* Tablet: 441-768px */
+    @media (min-width: 441px) and (max-width: 768px) {
+      [data-layout="main"] { max-width: 700px; padding: 0 20px; }
+      [data-layout="header"] { padding: 20px 24px 14px; }
+      [data-layout="header-title"] { font-size: 24px; }
+      [data-layout="grid-4"] { grid-template-columns: 1fr 1fr !important; }
+      [data-layout="grid-3"] { grid-template-columns: 1fr 1fr !important; }
+      [data-layout="button-size"] { width: 42px; height: 42px; font-size: 18px; }
+    }
+    
+    /* Desktop: 769px+ */
+    @media (min-width: 769px) {
+      [data-layout="main"] { max-width: 1400px; padding: 0 32px; }
+      [data-layout="header"] { padding: 24px 32px 16px; }
+      [data-layout="header-title"] { font-size: 32px; }
+      [data-layout="grid-4"] { grid-template-columns: repeat(4, 1fr) !important; }
+      [data-layout="grid-3"] { grid-template-columns: 1fr 1fr 1fr !important; }
+      [data-layout="button-size"] { width: 48px; height: 48px; font-size: 20px; }
+    }
+    
     @media print {
       html, body { background: #fff !important; color: #000 !important; }
       #app-root { display: none !important; }
@@ -1210,8 +1255,8 @@
     /* ══════════════════════════════════════════════════════════════
        APP
     ══════════════════════════════════════════════════════════════ */
-    const TABS=["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","ลูกค้า","รายงาน"];
-    const ICONS={"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","ลูกค้า":"👥","รายงาน":"📊"};
+    const TABS=["หน้าหลัก","สต๊อก","ขาย/รับ","ประกัน","รายงาน"];
+    const ICONS={"หน้าหลัก":"🏠","สต๊อก":"📦","ขาย/รับ":"🔄","ประกัน":"🛡️","รายงาน":"📊"};
 
     function App() {
       const [users,setUsers,usersLoaded]          = useFirestore("users",        DEF_USERS);
@@ -1261,6 +1306,33 @@
         window.addEventListener("online",on); window.addEventListener("offline",off);
         return()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); };
       },[]);
+
+      // ── Theme & Settings ─────────────────────────────────────────
+      const [theme, setTheme] = useState(() => {
+        try { const t = localStorage.getItem("benz_theme"); return t || "dark"; } catch { return "dark"; }
+      });
+      const [showSettings, setShowSettings] = useState(false);
+      const [customColors, setCustomColors] = useState(() => {
+        try { const c = localStorage.getItem("benz_colors"); return c ? JSON.parse(c) : {primary:"#ff6b00", secondary:"#ff9500", success:"#00cc66", danger:"#ff3333"}; } catch { return {primary:"#ff6b00", secondary:"#ff9500", success:"#00cc66", danger:"#ff3333"}; }
+      });
+      
+      useEffect(() => {
+        localStorage.setItem("benz_theme", theme);
+        document.documentElement.setAttribute("data-theme", theme);
+      }, [theme]);
+      
+      useEffect(() => {
+        localStorage.setItem("benz_colors", JSON.stringify(customColors));
+      }, [customColors]);
+
+      const themeColors = {
+        dark: {bg:"#0d0d0d", border:"#222", text:"#f0f0f0", card:"#161616", header:"#1a0a00"},
+        light: {bg:"#f5f5f5", border:"#ddd", text:"#1a1a1a", card:"#fff", header:"#fff8f0"}
+      };
+      const colors = themeColors[theme];
+      
+      // ── Notifications ────────────────────────────────────────────
+      const [notifications, setNotifications] = useState([])
 
       const allLoaded = prodLoaded && txLoaded && wLoaded && usersLoaded;
 
@@ -1560,24 +1632,27 @@
       const filtW     = warranties.filter(w=>wFilter==="all"||wStatus(w)===wFilter).filter(w=>!wSearchQ||w.customer.includes(wSearchQ)||w.plate?.includes(wSearchQ)||w.product.includes(wSearchQ)||w.phone?.includes(wSearchQ));
 
       return (
-        <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",maxWidth:440,margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0"}}>
+        <div style={{fontFamily:"'Sarabun',sans-serif",background:"#0d0d0d",minHeight:"100vh",width:"100%",maxWidth:"100%",margin:"0 auto",position:"relative",paddingBottom:80,color:"#f0f0f0",paddingLeft:"clamp(16px, 5%, 32px)",paddingRight:"clamp(16px, 5%, 32px)"}}>
           {scanner&&<BarcodeScanner title={scanner==="in"?"สแกนรับเข้า":scanner==="out"?"สแกนขายออก":"สแกนค้นหา"} onScan={onScan} onClose={()=>setScanner(null)}/>}
           {showImport&&<ImportModal onClose={()=>setShowImport(false)} onImportProducts={importProducts} onImportWarranties={importWarranties} products={products}/>}
           {showUsers&&<UserManagement users={users} setUsers={setUsers} currentUser={cu} onClose={()=>setShowUsers(false)}/>}
           {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} onBackup={()=>doBackup({products,transactions,warranties,users})} setProducts={setProducts} setTxs={setTxs} setWarranties={setWarranties} setUsers={setUsers} toast_={toast_}/>}
           {showBarcode&&<BarcodeModal products={products} shopName={shopConfig.name||shopName} onClose={()=>setShowBarcode(false)}/>}
           {showShopConfig&&<ShopConfigModal config={shopConfig} setConfig={setShopConfig} onClose={()=>setShowShopConfig(false)} toast_={toast_}/>}
+          {showSettings&&<SettingsPanel theme={theme} setTheme={setTheme} customColors={customColors} setCustomColors={setCustomColors} onClose={()=>setShowSettings(false)}/>}
           {taxInvoiceTx&&<TaxInvoiceModal tx={taxInvoiceTx} config={shopConfig} onClose={()=>setTaxInvoiceTx(null)}/>}
 
           {/* HEADER */}
-          <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"18px 16px 12px",borderBottom:"2px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
+          <div style={{background:"linear-gradient(135deg,#1a0a00,#3d1a00,#1a0a00)",padding:"clamp(18px, 3%, 24px) clamp(16px, 5%, 32px) clamp(12px, 2%, 16px)",borderBottom:"3px solid #ff6b00",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 20px rgba(255,107,0,.3)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div><div style={{fontSize:9,color:"#ff6b00",letterSpacing:3,fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:20,fontWeight:800,lineHeight:1.2}}>{shopName}</div><div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}><div style={{width:6,height:6,borderRadius:"50%",background:online?"#00cc66":"#ff3333"}}></div><div style={{fontSize:9,color:online?"#00cc66":"#ff6666"}}>{online?"☁️ Firebase Sync":"⚠️ ออฟไลน์"}</div></div></div>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:9,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
-                {cu.role==="admin"&&<button onClick={()=>setShowUsers(true)} title="จัดการผู้ใช้" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙️</button>}
-                {cu.role==="admin"&&<button onClick={()=>setShowShopConfig(true)} title="ตั้งค่าร้าน/ภาษี" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🏪</button>}
-                <button onClick={logout} title="ออกจากระบบ" style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"1px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
+              <div><div style={{fontSize:"clamp(9px, 2.5vw, 12px)",color:"#ff6b00",letterSpacing:"clamp(2px, 1vw, 4px)",fontWeight:700,textTransform:"uppercase"}}>ระบบจัดการร้าน</div><div style={{fontSize:"clamp(20px, 5vw, 32px)",fontWeight:800,lineHeight:1.2}}>{shopName}</div><div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}><div style={{width:8,height:8,borderRadius:"50%",background:online?"#00cc66":"#ff3333"}}></div><div style={{fontSize:12,color:online?"#00cc66":"#ff6666"}}>{online?"☁️ Firebase Sync":"⚠️ ออฟไลน์"}</div></div></div>
+              <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                <div style={{textAlign:"right"}}><div style={{fontSize:14,color:"#ff9500",fontWeight:600}}>{cu.name}</div><div style={{fontSize:12,color:"#555"}}>{cu.role==="admin"?"👑 Admin":"👤 Staff"}</div></div>
+                <button onClick={()=>setTheme(theme==="dark"?"light":"dark")} title="Toggle theme" style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"2px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>{theme==="dark"?"🌙":"☀️"}</button>
+                <button onClick={()=>setShowSettings(true)} title="Settings" style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"2px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙️</button>
+                {cu.role==="admin"&&<button onClick={()=>setShowUsers(true)} title="จัดการผู้ใช้" style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"2px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>👥</button>}
+                {cu.role==="admin"&&<button onClick={()=>setShowShopConfig(true)} title="ตั้งค่าร้าน/ภาษี" style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"2px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>🏪</button>}
+                <button onClick={logout} title="ออกจากระบบ" style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,107,0,.15)",border:"2px solid #ff6b0044",color:"#ff9500",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>🚪</button>
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:lowStock.length||expW.length||warnW.length?8:0}}>
@@ -1591,22 +1666,21 @@
           {lastRcp&&tab==="หน้าหลัก"&&<div style={{margin:"10px 16px 0",background:"#1a1a00",border:"1px solid #ff9500",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"#aaa"}}>🧾 <strong style={{color:"#fff"}}>{lastRcp.productName}</strong></div><button onClick={()=>printReceipt(lastRcp,shopName)} style={{background:"#ff6b00",border:"none",color:"#fff",padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>🖨️ ใบเสร็จ</button></div>}
 
           <div style={{padding:"0 16px"}}>
-            {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner}/>}
+            {tab==="หน้าหลัก"&&<HomeTab products={products} tRev={tRev} tSales={tSales} lowStock={lowStock} warnW={warnW} expW={expW} setTab={setTab} setModal={setModal} transactions={transactions} openW={openW} setScanner={setScanner} warranties={warranties}/>}
             {tab==="สต๊อก"   &&<StockTab products={filtProd.length<products.length?filtProd:products} searchQ={searchQ} setSearchQ={setSearchQ} setEditP={setEditP} lowStock={lowStock} openAdd={openAdd} openScanner={()=>setScanner("stock")} setShowImport={setShowImport} doExport={()=>exportProductsOnly(products)} setShowBarcode={setShowBarcode}/>}
             {tab==="ขาย/รับ" &&<TxTab transactions={transactions} setModal={setModal} printRcp={tx=>printReceipt(tx,shopConfig)} setScanner={setScanner} setTaxInvoiceTx={setTaxInvoiceTx} onDelete={delTx} userRole={cu.role} products={products} shopConfig={shopConfig}/>}
             {tab==="ประกัน"  &&<WarrantyTab warranties={filtW} wFilter={wFilter} setWFilter={setWFilter} wSearchQ={wSearchQ} setWSearchQ={setWSearchQ} openW={openW} delW={delW} printW={w=>printWarrantyDoc(w,shopName)} allW={warranties}/>}
-            {tab==="ลูกค้า"  &&<CustomerTab transactions={transactions} warranties={warranties} products={products}/>}
             {tab==="รายงาน"  &&<ReportTab online={online} reportDate={reportDate} setRDate={setRDate} tSales={tSales} tIn={tIn} tRev={tRev} transactions={transactions} products={products} warranties={warranties} users={users} doExport={()=>exportAll(products,transactions,warranties)} setShowImport={setShowImport} setShowBackup={setShowBackup}/>}
           </div>
 
-          <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:"#111",borderTop:"1px solid #222",display:"flex",padding:"8px 0 env(safe-area-inset-bottom,12px)",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
+          <div style={{position:"fixed",bottom:0,left:0,right:0,width:"100%",background:"#111",borderTop:"1px solid #222",display:"flex",padding:"clamp(8px, 2%, 12px) clamp(16px, 5%, 32px) env(safe-area-inset-bottom, clamp(12px, 2%, 16px))",boxShadow:"0 -4px 20px rgba(0,0,0,.5)"}}>
             {TABS.map(t=>(
-              <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 0",position:"relative"}}>
-                <span style={{fontSize:19}}>{ICONS[t]}</span>
-                <span style={{fontSize:9,fontWeight:600,color:tab===t?"#ff6b00":"#555"}}>{t}</span>
-                {tab===t&&<div style={{width:4,height:4,borderRadius:"50%",background:"#ff6b00",marginTop:1}}/>}
-                {t==="ประกัน"&&(expW.length+warnW.length>0)&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:expW.length?"#ff3333":"#ffcc00"}}/>}
-                {t==="สต๊อก"&&lowStock.length>0&&<div style={{position:"absolute",top:2,right:"18%",width:8,height:8,borderRadius:"50%",background:"#ff3333"}}/>}
+              <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"6px 0",position:"relative"}}>
+                <span style={{fontSize:24}}>{ICONS[t]}</span>
+                <span style={{fontSize:13,fontWeight:600,color:tab===t?"#ff6b00":"#555"}}>{t}</span>
+                {tab===t&&<div style={{width:5,height:5,borderRadius:"50%",background:"#ff6b00",marginTop:2}}/>}
+                {t==="ประกัน"&&(expW.length+warnW.length>0)&&<div style={{position:"absolute",top:2,right:"15%",width:10,height:10,borderRadius:"50%",background:expW.length?"#ff3333":"#ffcc00"}}/>}
+                {t==="สต๊อก"&&lowStock.length>0&&<div style={{position:"absolute",top:2,right:"15%",width:10,height:10,borderRadius:"50%",background:"#ff3333"}}/>}
               </button>
             ))}
           </div>
@@ -2127,31 +2201,28 @@
       );
     }
 
-    function HomeTab({products,tRev,tSales,lowStock,warnW,expW,setTab,setModal,transactions,openW,setScanner}) {
-      const todayCost = tSales.reduce((s,tx)=>{
-        if(tx.items) return s+tx.items.reduce((ss,it)=>{ const p=products.find(x=>x.id===it.productId); return ss+(p?.costPrice||0)*it.qty; },0);
-        const p=products.find(x=>x.id===tx.productId); return s+(p?.costPrice||0)*tx.qty;
-      },0);
-      const todayProfit = tRev - todayCost;
+    function HomeTab({products,tRev,tSales,lowStock,warnW,expW,setTab,setModal,transactions,openW,setScanner,warranties}) {
       return (
         <div style={{paddingTop:14}}>
-          <div style={{fontSize:11,color:"#555",marginBottom:8}}>📅 วันนี้ {thDate(today())}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <Stat icon="💰" label="ยอดขายวันนี้"  val={`฿${fmt(tRev)}`}           color="#ff6b00"/>
-            <Stat icon="📈" label="กำไรวันนี้"     val={todayCost>0?`฿${fmt(todayProfit)}`:"—"} color="#00cc66"/>
-            <Stat icon="📦" label="สต๊อกรวม"      val={`${fmt(products.reduce((s,p)=>s+p.stock,0))} ชิ้น`} color="#00aaff"/>
-            <Stat icon="🛡️" label="ประกันใกล้หมด" val={`${expW.length+warnW.length} รายการ`} color={expW.length?"#ff3333":"#ffcc00"}/>
+          <div style={{fontSize:12,color:"#555",marginBottom:12}}>📅 {thDate(today())}</div>
+          
+          {/* Enhanced Dashboard Stats */}
+          <DashboardStats tRev={tRev} products={products} transactions={transactions} warranties={warranties} expW={expW} warnW={warnW} lowStock={lowStock}/>
+          
+          {/* Profit Tracking */}
+          <ProfitTracker transactions={transactions} products={products}/>
+          
+          <SecTitle>💡 Actions</SecTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:14}}>
+            <ABtn icon="📥" label="รับเข้า" color="#00cc66" onClick={()=>setModal("in")}/>
+            <ABtn icon="📤" label="ขายออก" color="#ff6b00" onClick={()=>setModal("out")}/>
+            <ABtn icon="🛡️" label="ประกัน" color="#00aaff" onClick={()=>openW()}/>
+            <ABtn icon="📊" label="รายงาน" color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
           </div>
-          <SecTitle>การดำเนินการด่วน</SecTitle>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <ABtn icon="📥" label="รับสินค้า"   color="#00cc66" onClick={()=>setModal("in")}/>
-            <ABtn icon="📤" label="บันทึกขาย"  color="#ff6b00" onClick={()=>setModal("out")}/>
-            <ABtn icon="🛡️" label="เพิ่มประกัน" color="#00aaff" onClick={()=>openW()}/>
-            <ABtn icon="📊" label="รายงาน"      color="#aa66ff" onClick={()=>setTab("รายงาน")}/>
-          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <button onClick={()=>setScanner("in")} style={{padding:"12px 8px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <span style={{fontSize:22}}>📷</span><span style={{fontSize:11,fontWeight:600}}>สแกนรับของเข้า</span>
+            <button onClick={()=>setScanner("in")} style={{padding:"14px 12px",borderRadius:12,border:"2px dashed #00cc6644",background:"rgba(0,204,102,.05)",color:"#00cc66",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <span style={{fontSize:24}}>📷</span><span style={{fontSize:12,fontWeight:600}}>สแกนรับของ</span>
             </button>
             <button onClick={()=>setScanner("out")} style={{padding:"12px 8px",borderRadius:12,border:"2px dashed #ff6b0044",background:"rgba(255,107,0,.05)",color:"#ff9500",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <span style={{fontSize:22}}>📷</span><span style={{fontSize:11,fontWeight:600}}>สแกนขายออก</span>
@@ -2589,6 +2660,152 @@
       const m={ok:{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"},warn:{bg:"rgba(255,204,0,.1)",c:"#ffcc00",b:"rgba(255,204,0,.3)",t:"⚠️ ใกล้หมด"},exp:{bg:"rgba(255,51,51,.12)",c:"#ff3333",b:"rgba(255,51,51,.3)",t:"❌ หมดแล้ว"}}[s]||{bg:"rgba(0,204,102,.12)",c:"#00cc66",b:"rgba(0,204,102,.3)",t:"✅ ปกติ"};
       return <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m.bg,color:m.c,border:`1px solid ${m.b}`,whiteSpace:"nowrap"}}>{m.t}</span>;
     }
+    /* ══════════════════════════════════════════════════════════════
+       ENHANCED MODULAR COMPONENTS (Smart + Modular System)
+    ══════════════════════════════════════════════════════════════ */
+
+    // Dashboard Stats Component
+    function DashboardStats({tRev,products,transactions,warranties,expW,warnW,lowStock}) {
+      const todayCost = transactions.filter(t=>t.date===today()&&t.type==="out").reduce((s,tx)=>{
+        if(tx.items) return s+tx.items.reduce((ss,it)=>{ const p=products.find(x=>x.id===it.productId); return ss+(p?.costPrice||0)*it.qty; },0);
+        const p=products.find(x=>x.id===tx.productId); return s+(p?.costPrice||0)*(tx.qty||1);
+      },0);
+      const todayProfit = tRev - todayCost;
+      const totalStockValue = products.reduce((s,p)=>s+(p.costPrice||0)*p.stock,0);
+      const activeWarranties = warranties.filter(w=>wStatus(w)==="ok").length;
+      
+      return <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
+        <Stat icon="💰" label="ยอดขายวันนี้" val={`฿${fmt(tRev)}`} color="#ff6b00"/>
+        <Stat icon="📈" label="กำไรวันนี้" val={todayCost>0?`฿${fmt(todayProfit)}`:"—"} color="#00cc66"/>
+        <Stat icon="📦" label="มูลค่าสต๊อก" val={`฿${fmt(totalStockValue)}`} color="#00aaff"/>
+        <Stat icon="🛡️" label="ประกันใช้งาน" val={`${activeWarranties}`} color="#aa66ff"/>
+      </div>;
+    }
+
+    // Simple Chart Component
+    function SimpleChart({data,label,color}) {
+      const maxVal = Math.max(...data.map(d=>d.value),1);
+      return <div style={{marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{label}</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:4,height:120}}>
+          {data.map((d,i)=>(
+            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <div style={{width:"100%",height:`${(d.value/maxVal)*100}px`,background:color,borderRadius:6,opacity:0.8}}/>
+              <div style={{fontSize:10,color:"#555",textAlign:"center"}}>{d.label}</div>
+              <div style={{fontSize:11,fontWeight:600}}>{d.label==="ธ.ค."?`฿${fmt(d.value)}`:fmt(d.value)}</div>
+            </div>
+          ))}
+        </div>
+      </div>;
+    }
+
+    // Theme Toggle Component
+    function ThemeToggle({theme,onToggle}) {
+      return <button onClick={onToggle} style={{padding:"8px 16px",borderRadius:20,border:"1px solid #ff6b0044",background:"rgba(255,107,0,.1)",color:"#ff9500",cursor:"pointer",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+        {theme==="dark"?"🌙 Dark Mode":"☀️ Light Mode"}
+      </button>;
+    }
+
+    // Settings Panel Component
+    function SettingsPanel({theme,setTheme,customColors,setCustomColors,onClose}) {
+      return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+        <div style={{background:"#111",borderRadius:16,padding:24,maxWidth:500,width:"95%",border:"1px solid #2a2a2a",maxHeight:"90vh",overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+            <div style={{fontSize:18,fontWeight:700}}>⚙️ Settings</div>
+            <button onClick={onClose} style={{background:"#222",border:"none",color:"#aaa",fontSize:18,cursor:"pointer",borderRadius:8,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          </div>
+          
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>🎨 Theme & Colors</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button onClick={()=>setTheme("dark")} style={{flex:1,padding:10,borderRadius:8,background:theme==="dark"?"#ff6b00":"#222",color:"#fff",cursor:"pointer",fontWeight:600}}>🌙 Dark</button>
+              <button onClick={()=>setTheme("light")} style={{flex:1,padding:10,borderRadius:8,background:theme==="light"?"#ff6b00":"#222",color:"#fff",cursor:"pointer",fontWeight:600}}>☀️ Light</button>
+            </div>
+            
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:6}}>Primary Color</label>
+                <input type="color" value={customColors.primary} onChange={e=>setCustomColors({...customColors,primary:e.target.value})} style={{width:"100%",height:40,borderRadius:8,border:"none",cursor:"pointer"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:6}}>Secondary Color</label>
+                <input type="color" value={customColors.secondary} onChange={e=>setCustomColors({...customColors,secondary:e.target.value})} style={{width:"100%",height:40,borderRadius:8,border:"none",cursor:"pointer"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:6}}>Success Color</label>
+                <input type="color" value={customColors.success} onChange={e=>setCustomColors({...customColors,success:e.target.value})} style={{width:"100%",height:40,borderRadius:8,border:"none",cursor:"pointer"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:"#888",display:"block",marginBottom:6}}>Danger Color</label>
+                <input type="color" value={customColors.danger} onChange={e=>setCustomColors({...customColors,danger:e.target.value})} style={{width:"100%",height:40,borderRadius:8,border:"none",cursor:"pointer"}}/>
+              </div>
+            </div>
+          </div>
+
+          <div style={{borderTop:"1px solid #222",paddingTop:16}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>📱 Layout</div>
+            <div style={{background:"#161616",borderRadius:8,padding:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:12}}>Compact Mode</span>
+                <input type="checkbox" style={{cursor:"pointer"}}/>
+              </div>
+              <div style={{fontSize:11,color:"#555"}}>ลดขนาด padding และ margin</div>
+            </div>
+          </div>
+
+          <button onClick={onClose} style={{width:"100%",padding:12,marginTop:16,borderRadius:8,border:"none",background:"#ff6b00",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>✓ บันทึก</button>
+        </div>
+      </div>;
+    }
+
+    // Notification Banner Component
+    function NotificationBanner({notifications,onDismiss}) {
+      if(notifications.length===0) return null;
+      return <div style={{position:"fixed",top:80,right:20,zIndex:250,display:"flex",flexDirection:"column",gap:10}}>
+        {notifications.map((n,i)=>(
+          <div key={i} style={{background:n.type==="error"?"#ff3333":n.type==="success"?"#00cc66":"#ff9500",color:"#fff",padding:"12px 16px",borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center",minWidth:280,boxShadow:"0 4px 15px rgba(0,0,0,.4)"}}>
+            <span style={{fontSize:12,fontWeight:600}}>{n.message}</span>
+            <button onClick={()=>onDismiss(i)} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:16}}>✕</button>
+          </div>
+        ))}
+      </div>;
+    }
+
+    // Profit Tracking Component
+    function ProfitTracker({transactions,products}) {
+      const today_date = today();
+      const week_start = new Date(); week_start.setDate(week_start.getDate()-6);
+      const week_start_str = week_start.toISOString().slice(0,10);
+      
+      const calcProfit = (txs) => {
+        return txs.filter(t=>t.type==="out").reduce((profit,tx)=>{
+          let cost = 0;
+          if(tx.items) cost = tx.items.reduce((s,it)=>{ const p=products.find(x=>x.id===it.productId); return s+(p?.costPrice||0)*it.qty; },0);
+          else { const p=products.find(x=>x.id===tx.productId); cost=(p?.costPrice||0)*(tx.qty||1); }
+          return profit + (tx.total - cost);
+        },0);
+      };
+
+      const todayProfit = calcProfit(transactions.filter(t=>t.date===today_date));
+      const weekProfit = calcProfit(transactions.filter(t=>t.date>=week_start_str && t.date<=today_date));
+      const monthProfit = calcProfit(transactions.filter(t=>t.date.startsWith(today_date.slice(0,7))));
+
+      return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
+        <div style={{background:"#1a1a1a",border:"1px solid #00cc6633",borderRadius:12,padding:12}}>
+          <div style={{fontSize:11,color:"#555",marginBottom:4}}>📅 วันนี้</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#00cc66"}}>฿{fmt(todayProfit)}</div>
+        </div>
+        <div style={{background:"#1a1a1a",border:"1px solid #00aaff33",borderRadius:12,padding:12}}>
+          <div style={{fontSize:11,color:"#555",marginBottom:4}}>📊 7 วันล่าสุด</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#00aaff"}}>฿{fmt(weekProfit)}</div>
+        </div>
+        <div style={{background:"#1a1a1a",border:"1px solid #aa66ff33",borderRadius:12,padding:12}}>
+          <div style={{fontSize:11,color:"#555",marginBottom:4}}>📈 เดือนนี้</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#aa66ff"}}>฿{fmt(monthProfit)}</div>
+        </div>
+      </div>;
+    }
+
     function Modal({title,children,onClose}) {
       return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
         <div style={{background:"#111",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:440,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",border:"1px solid #2a2a2a"}}>
